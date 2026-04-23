@@ -1,0 +1,13 @@
+# ── Core framework ─────────────────────────────────────────────────────────
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+python-multipart==0.0.18      # required for UploadFile / multipart
+
+# ── Settings ───────────────────────────────────────────────────────────────
+pydantic-settings==2.6.1
+
+# ── AI / ML ────────────────────────────────────────────────────────────────
+tensorflow==2.17.0            # Keras 3 bundled; swap for tensorflow-gpu if CUDA
+Pillow==11.0.0
+numpy==1.26.4                 # TF 2.17 still requires numpy <2
+

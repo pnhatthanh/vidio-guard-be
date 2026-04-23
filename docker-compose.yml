@@ -1,0 +1,96 @@
+version: "3.9"
+
+services:
+  video-api:
+    build: .
+    container_name: video-processing-demo
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    volumes:
+      - outputs:/app/outputs
+      - redis-data:/data
+    depends_on:
+      - minio
+      - redis
+      - videoguard-ai
+    networks:
+      - video-network
+    restart: unless-stopped
+
+  videoguard-ai:
+    build:
+      context: ./ai-service
+      dockerfile: Dockerfile
+    container_name: videoguard-ai
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./ai-service/.env
+    volumes:
+      # Mount your trained model file here at runtime
+      - ai-models:/app/models
+    networks:
+      - video-network
+    restart: unless-stopped
+    # ── GPU support (uncomment if host has NVIDIA GPU + nvidia-container-toolkit) ──
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    ports:
+      - "6379:6379"
+    networks:
+      - video-network
+    restart: unless-stopped
+
+  asynqmon-ui:
+    image: hibiken/asynqmon:latest
+    container_name: asynqmon-ui
+    ports:
+      - "8081:8080"
+    environment:
+      - REDIS_ADDR=redis:6379
+    depends_on:
+      - redis
+    networks:
+      - video-network
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      - MINIO_ROOT_USER=minioadmin
+      - MINIO_ROOT_PASSWORD=minioadmin
+    volumes:
+      - minio-data:/data
+    networks:
+      - video-network
+    restart: unless-stopped
+
+networks:
+  video-network:
+    driver: bridge
+
+volumes:
+  minio-data:
+    driver: local
+  outputs:
+    driver: local
+  redis-data:
+    driver: local
+  ai-models:
+    driver: local

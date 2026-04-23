@@ -1,0 +1,18 @@
+# Build artifacts
+bin/
+*.exe
+*.out
+
+# VCS
+.git
+.gitignore
+
+# Local data (don’t bake into image)
+uploads
+outputs
+
+# IDE/editor
+.vscode
+.idea
+*.swp
+*.swo
