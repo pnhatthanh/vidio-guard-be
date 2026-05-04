@@ -2,19 +2,23 @@ version: "3.9"
 
 services:
   video-api:
-    build: .
+    build:
+      context: ./server
+      dockerfile: Dockerfile
     container_name: video-processing-demo
     ports:
       - "8080:8080"
     env_file:
-      - .env
+      - ./server/.env
     volumes:
       - outputs:/app/outputs
-      - redis-data:/data
     depends_on:
-      - minio
-      - redis
-      - videoguard-ai
+      minio:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      videoguard-ai:
+        condition: service_started
     networks:
       - video-network
     restart: unless-stopped
@@ -28,9 +32,6 @@ services:
       - "8000:8000"
     env_file:
       - ./ai-service/.env
-    volumes:
-      # Mount your trained model file here at runtime
-      - ai-models:/app/models
     networks:
       - video-network
     restart: unless-stopped
@@ -48,9 +49,16 @@ services:
     container_name: redis
     ports:
       - "6379:6379"
+    volumes:
+      - redis-data:/data
     networks:
       - video-network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
   asynqmon-ui:
     image: hibiken/asynqmon:latest
@@ -80,6 +88,12 @@ services:
     networks:
       - video-network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
 networks:
   video-network:
@@ -91,6 +105,4 @@ volumes:
   outputs:
     driver: local
   redis-data:
-    driver: local
-  ai-models:
     driver: local

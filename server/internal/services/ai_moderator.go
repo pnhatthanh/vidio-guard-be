@@ -17,9 +17,6 @@ import (
 	"github.com/pnhatthanh/vidio-guard-be/internal/model"
 )
 
-// ─────────────────────────────────────────────────────────────────────────────
-// AI service response shapes (mirrors ai-service/app/schemas.py)
-// ─────────────────────────────────────────────────────────────────────────────
 
 type aiFramePrediction struct {
 	Frame      string             `json:"frame"`
@@ -33,7 +30,6 @@ type aiBatchPredictResponse struct {
 	Predictions []aiFramePrediction `json:"predictions"`
 }
 
-// isFlagged reports whether a label counts as harmful content.
 func isFlagged(label string) bool {
 	return label == "nsfw" || label == "violence"
 }
@@ -56,10 +52,6 @@ func overallLabel(predictions []model.FrameResult) string {
 	return "safe"
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// AIModerator — calls /predict/batch on the Python FastAPI AI service
-// ─────────────────────────────────────────────────────────────────────────────
-
 type AIModerator struct {
 	cfg    config.AIServiceConfig
 	client *http.Client
@@ -69,8 +61,6 @@ func NewAIModerator(cfg config.AIServiceConfig) *AIModerator {
 	return &AIModerator{
 		cfg: cfg,
 		client: &http.Client{
-			// Timeout per chunk request: generous enough for CPU inference on
-			// up to 32 frames, but bounded to avoid hanging forever.
 			Timeout: 3 * time.Minute,
 		},
 	}
@@ -84,7 +74,6 @@ func NewAIModerator(cfg config.AIServiceConfig) *AIModerator {
 // count reaches that threshold, remaining chunks are skipped immediately.
 // This keeps latency bounded even for long videos.
 func (a *AIModerator) PredictFramesDir(videoID, framesDir string) (*model.PredictionResult, error) {
-	// ── 1. Collect & sort frame file paths ───────────────────────────────
 	entries, err := os.ReadDir(framesDir)
 	if err != nil {
 		return nil, fmt.Errorf("read frames dir %s: %w", framesDir, err)
@@ -111,18 +100,16 @@ func (a *AIModerator) PredictFramesDir(videoID, framesDir string) (*model.Predic
 		}, nil
 	}
 
-	// ── 2. Determine chunk size ───────────────────────────────────────────
 	chunkSize := a.cfg.ChunkSize
 	if chunkSize <= 0 {
-		chunkSize = 32 // safe fallback
+		chunkSize = 32
 	}
-	earlyExit := a.cfg.EarlyExitCount // 0 = disabled
+	earlyExit := a.cfg.EarlyExitCount
 
 	totalChunks := (totalFrames + chunkSize - 1) / chunkSize
 	log.Printf("[ai_moderator] video=%s: %d frames → %d chunk(s) of ≤%d (early-exit after %d flagged)",
 		videoID, totalFrames, totalChunks, chunkSize, earlyExit)
 
-	// ── 3. Process chunks ─────────────────────────────────────────────────
 	result := &model.PredictionResult{
 		VideoID:     videoID,
 		Predictions: make([]model.FrameResult, 0, totalFrames),
@@ -141,13 +128,11 @@ func (a *AIModerator) PredictFramesDir(videoID, framesDir string) (*model.Predic
 
 		chunkPreds, err := a.sendChunk(chunk)
 		if err != nil {
-			// Non-fatal: log and continue with next chunk
 			log.Printf("[ai_moderator] video=%s: chunk %d error: %v (skipping chunk)",
 				videoID, chunkIdx+1, err)
 			continue
 		}
 
-		// Accumulate results
 		for _, p := range chunkPreds {
 			fr := model.FrameResult{
 				Frame:      p.Frame,
@@ -162,7 +147,6 @@ func (a *AIModerator) PredictFramesDir(videoID, framesDir string) (*model.Predic
 			}
 		}
 
-		// ── Early exit check ─────────────────────────────────────────────
 		if earlyExit > 0 && result.FlaggedCount >= earlyExit {
 			remaining := totalFrames - end
 			log.Printf("[ai_moderator] video=%s: early exit triggered — %d flagged frames reached threshold %d (%d frames unchecked)",
@@ -172,7 +156,6 @@ func (a *AIModerator) PredictFramesDir(videoID, framesDir string) (*model.Predic
 		}
 	}
 
-	// ── 4. Compute overall video-level verdict ────────────────────────────
 	result.OverallLabel = overallLabel(result.Predictions)
 
 	log.Printf("[ai_moderator] video=%s: done — checked %d/%d frames, flagged=%d, early=%v, verdict=%s",
@@ -181,8 +164,7 @@ func (a *AIModerator) PredictFramesDir(videoID, framesDir string) (*model.Predic
 	return result, nil
 }
 
-// sendChunk POSTs a single chunk of frame files to the AI service /predict/batch
-// and returns the raw predictions.
+// sendChunk POST to the AI service /predict/batch
 func (a *AIModerator) sendChunk(framePaths []string) ([]aiFramePrediction, error) {
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
@@ -210,7 +192,7 @@ func (a *AIModerator) sendChunk(framePaths []string) ([]aiFramePrediction, error
 		return nil, fmt.Errorf("finalize multipart: %w", err)
 	}
 
-	url := a.cfg.URL + "/predict/batch"
+	url := a.cfg.URL + "/images/predict/batch"
 	req, err := http.NewRequest(http.MethodPost, url, body)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)

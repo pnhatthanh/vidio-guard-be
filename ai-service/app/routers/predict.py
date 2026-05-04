@@ -12,14 +12,8 @@ from app.schemas import BatchPredictResponse, FramePrediction
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/predict", tags=["predict"])
+router = APIRouter(prefix="/images/predict", tags=["predict"])
 settings = get_settings()
-
-# ─────────────────────────────────────────────────────────────────────────────
-# POST /predict/batch
-# Accepts up to `batch_size` frame images as multipart/form-data.
-# Returns label + confidence for each frame.
-# ─────────────────────────────────────────────────────────────────────────────
 
 @router.post(
     "/batch",
@@ -47,7 +41,6 @@ async def predict_frames_batch(
             detail=f"Too many frames. Max batch size is {max_batch}.",
         )
 
-    # ── Decode all uploaded files ─────────────────────────────────────────
     images = []
     filenames = []
 
@@ -64,7 +57,6 @@ async def predict_frames_batch(
         images.append(arr)
         filenames.append(upload.filename or f"frame_{len(filenames)}.jpg")
 
-    # ── Single-pass batch inference ───────────────────────────────────────
     logger.info(f"Running inference on {len(images)} frames")
     raw_results = predict_batch(images, model)
 

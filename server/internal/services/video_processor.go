@@ -16,7 +16,7 @@ type VideoProcessor interface {
 
 type FFmpegVideoProcessor struct {
 	OutputBasePath string
-	AIModerator *AIModerator
+	AIModerator    *AIModerator
 }
 
 func NewFFmpegVideoProcessor(outputBasePath string, ai *AIModerator) *FFmpegVideoProcessor {
@@ -30,6 +30,7 @@ func (p *FFmpegVideoProcessor) Process(job model.VideoJob) error {
 
 	framesDir := filepath.Join(p.OutputBasePath, job.VideoID, "frames")
 	audioDir := filepath.Join(p.OutputBasePath, job.VideoID, "audio")
+	audioChunksDir := filepath.Join(p.OutputBasePath, job.VideoID, "audio_chunks")
 
 	if err := utils.EnsureDir(framesDir); err != nil {
 		return err
@@ -37,20 +38,36 @@ func (p *FFmpegVideoProcessor) Process(job model.VideoJob) error {
 	if err := utils.EnsureDir(audioDir); err != nil {
 		return err
 	}
+	if err := utils.EnsureDir(audioChunksDir); err != nil {
+		return err
+	}
 
-	framesPattern := filepath.Join(framesDir, "frame_%04d.jpg")
+	framesPattern := filepath.Join(framesDir, "frame_%05d.jpg")
 	frameArgs := []string{
 		"-i", job.VideoPath,
-		"-vf", "fps=1/2",
+		"-vf", "fps=1,select='gt(scene,0.3)+not(mod(n,10))'",
+		"-vsync", "vfr",
+		"-q:v", "2",
 		framesPattern,
 	}
 
 	audioOut := filepath.Join(audioDir, "audio.wav")
 	audioArgs := []string{
 		"-i", job.VideoPath,
-		"-q:a", "0",
-		"-map", "0:a?",
+		"-vn",
+		"-ac", "1",
+		"-ar", "16000",
+		"-acodec", "pcm_s16le",
 		audioOut,
+	}
+
+	audioChunksPattern := filepath.Join(audioChunksDir, "chunk_%03d.wav")
+	audioChunkArgs := []string{
+		"-i", audioOut,
+		"-f", "segment",
+		"-segment_time", "5",
+		"-c", "copy",
+		audioChunksPattern,
 	}
 
 	var (
@@ -78,11 +95,15 @@ func (p *FFmpegVideoProcessor) Process(job model.VideoJob) error {
 	}
 	if audioErr != nil {
 		log.Printf("[processor] Warning: audio extraction failed: %v", audioErr)
+	} else {
+		log.Printf("[processor] Splitting audio into 5s chunks at %s", audioChunksDir)
+		if err := utils.RunFFmpeg(audioChunkArgs); err != nil {
+			log.Printf("[processor] Warning: audio chunking failed: %v", err)
+		}
 	}
 
 	log.Printf("[processor] Done processing video: %s", job.VideoID)
 
-	// ── AI moderation step ────────────────────────────────────────────────
 	if p.AIModerator == nil {
 		log.Printf("[processor] video=%s: AIModerator not configured, skipping predict step", job.VideoID)
 		return nil
@@ -90,7 +111,6 @@ func (p *FFmpegVideoProcessor) Process(job model.VideoJob) error {
 
 	result, err := p.AIModerator.PredictFramesDir(job.VideoID, framesDir)
 	if err != nil {
-		// Non-fatal: log the error but don't fail the job
 		log.Printf("[processor] video=%s: AI moderation error: %v", job.VideoID, err)
 		return nil
 	}

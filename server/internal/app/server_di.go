@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/hibiken/asynq"
 	"github.com/pnhatthanh/vidio-guard-be/internal/config"
@@ -50,9 +51,23 @@ func buildInfra(cfg *config.Config) (*container, error) {
 	if err != nil {
 		return nil, fmt.Errorf("init minio store: %w", err)
 	}
-	if err := store.EnsureBucket(context.Background()); err != nil {
-		log.Printf("[infra] warn: ensure bucket: %v", err)
+
+	// Retry EnsureBucket until MinIO is ready (healthcheck guarantees it started,
+	// but the API may still need a moment on first boot).
+	const maxRetries = 10
+	const retryDelay = 3 * time.Second
+	for i := 1; i <= maxRetries; i++ {
+		if err := store.EnsureBucket(context.Background()); err == nil {
+			log.Printf("[infra] bucket %q ready", cfg.Minio.Bucket)
+			break
+		} else if i == maxRetries {
+			return nil, fmt.Errorf("ensure bucket after %d attempts: %w", maxRetries, err)
+		} else {
+			log.Printf("[infra] warn: ensure bucket (attempt %d/%d): %v — retrying in %s", i, maxRetries, err, retryDelay)
+			time.Sleep(retryDelay)
+		}
 	}
+
 	cache, err := pkg.NewCacheProvider(&cfg.Redis)
 	if err != nil {
 		return nil, fmt.Errorf("init redis cache: %w", err)
@@ -80,7 +95,7 @@ func buildServer(cfg *config.Config, c *container) (*Server, error) {
 	uploadHandler := handlers.NewUploadHandler(c.enqueuer, c.store)
 
 	s := newServer(&cfg.Server)
-	s.injectHandlers(uploadHandler)
+	s.uploadHandler = uploadHandler
 	s.registerMiddleware()
 	s.registerRoutes()
 

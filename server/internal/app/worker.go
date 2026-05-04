@@ -22,6 +22,9 @@ func NewWorker(redisCfg *config.RedisConfig, asynqCfg *config.AsynqConfig) (*Wor
 	return &Worker{
 		srv: asynq.NewServer(redisOpt, asynq.Config{
 			Concurrency: asynqCfg.Concurrency,
+			Queues: map[string]int{
+				asynqCfg.Queue: 1,
+			},
 		}),
 		mux: asynq.NewServeMux(),
 	}, nil

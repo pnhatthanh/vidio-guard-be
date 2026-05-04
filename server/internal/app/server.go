@@ -17,12 +17,8 @@ type Server struct {
 func newServer(cfg *config.ServerConfig) *Server {
 	return &Server{
 		cfg:    cfg,
-		router: gin.New(),
+		router: gin.Default(),
 	}
-}
-
-func (s *Server) injectHandlers(uploadHandler handlers.UploadHandler) {
-	s.uploadHandler = uploadHandler
 }
 
 func (s *Server) ListenAndServe() error {

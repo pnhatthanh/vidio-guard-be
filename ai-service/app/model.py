@@ -17,7 +17,6 @@ _model: tf.keras.Model | None = None
 
 
 def load_model() -> tf.keras.Model:
-    """Load model from disk. Called once at app startup via lifespan."""
     global _model
     logger.info(f"Loading model from: {settings.model_path}")
     _model = tf.keras.models.load_model(settings.model_path)
@@ -27,7 +26,6 @@ def load_model() -> tf.keras.Model:
 
 
 def get_model() -> tf.keras.Model:
-    """FastAPI dependency — returns the cached model."""
     if _model is None:
         raise RuntimeError("Model not loaded. Did lifespan run?")
     return _model
@@ -38,16 +36,17 @@ def preprocess_image(image_bytes: bytes) -> np.ndarray:
     Decode raw image bytes → numpy array ready for EfficientNetB3 inference.
 
     Steps:
-      1. Open with Pillow (supports JPEG/PNG/WebP)
-      2. Convert to RGB (drop alpha channel if any)
-      3. Resize to (img_size, img_size) — EfficientNetB3 expects 300×300
-      4. Normalize pixel values to [0, 1]  (model was trained with /255.0)
+      1. Decode with TensorFlow (supports JPEG/PNG/WebP) — matches training script
+      2. Resize to (img_size, img_size) — EfficientNetB3 expects 300×300
+      3. Cast to float32, keep pixel values in [0, 255]
+         ⚠ Do NOT divide by 255 — the model has a built-in Rescaling layer
+           that normalizes internally (same as training pipeline).
     """
-    size = (settings.img_size, settings.img_size)  # (300, 300)
-    img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
-    img = img.resize(size, Image.BILINEAR)
-    arr = np.array(img, dtype=np.float32) / 255.0
-    return arr
+    img = tf.image.decode_image(image_bytes, channels=3, expand_animations=False)
+    img = tf.image.resize(img, [settings.img_size, settings.img_size])
+    img = tf.cast(img, tf.float32)  # [0, 255] — model normalizes internally
+    return img.numpy()
+
 
 
 def predict_batch(
@@ -76,10 +75,7 @@ def predict_batch(
     thr_nsfw     = nsfw_threshold     if nsfw_threshold     is not None else settings.nsfw_threshold
     thr_violence = violence_threshold if violence_threshold is not None else settings.violence_threshold
 
-    # Stack → (N, H, W, 3)
     batch = np.stack(images, axis=0)
-
-    # Single forward pass — GPU-efficient
     raw_preds: np.ndarray = model.predict(batch, verbose=0)  # shape (N, num_classes)
 
     results = []

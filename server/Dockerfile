@@ -35,7 +35,7 @@ COPY --from=builder /app/server /app/server
 # Create folders for uploads and outputs (app also ensures them, this is just explicit)
 RUN mkdir -p /app/uploads /app/outputs
 
-ENV GIN_MODE=release
+#ENV GIN_MODE=release
 EXPOSE 8080
 
 CMD ["/app/server"]

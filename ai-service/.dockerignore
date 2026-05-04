@@ -13,10 +13,5 @@ build/
 htmlcov/
 .coverage
 
-# Model weights (mount at runtime, don't bake into image)
-models/*.keras
-models/*.h5
-models/*.onnx
-
 # Test artifacts
 tests/tmp/

@@ -6,14 +6,10 @@ from functools import lru_cache
 
 
 class Settings(BaseSettings):
-    # Model
     model_path: str = "models/efficientnet.keras"
-    # EfficientNetB3 standard input size is 300x300
     img_size: int = 300
     batch_size: int = 32
     labels: list[str] = ["nsfw", "safe", "violence"]
-
-    # Prediction thresholds — frames exceeding these are flagged directly
     nsfw_threshold: float = 0.6
     violence_threshold: float = 0.6
 
