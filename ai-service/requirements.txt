@@ -7,7 +7,7 @@ python-multipart==0.0.18      # required for UploadFile / multipart
 pydantic-settings==2.6.1
 
 # ── AI / ML ────────────────────────────────────────────────────────────────
-tensorflow==2.17.0            # Keras 3 bundled; swap for tensorflow-gpu if CUDA
+tensorflow-cpu==2.17.0        # CPU-only build; swap for tensorflow-gpu if CUDA available
 Pillow==11.0.0
 numpy==1.26.4                 # TF 2.17 still requires numpy <2
 

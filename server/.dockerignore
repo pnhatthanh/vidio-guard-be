@@ -7,9 +7,19 @@ bin/
 .git
 .gitignore
 
-# Local data (don’t bake into image)
-uploads
-outputs
+# Local data (don't bake into image)
+uploads/
+outputs/
+
+# Environment / secrets
+.env
+*.env
+
+# Documentation
+docs/
+
+# Test files
+*_test.go
 
 # IDE/editor
 .vscode

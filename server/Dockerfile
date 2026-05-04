@@ -1,41 +1,43 @@
-# Multi-stage build: build Go binary, then run in a slim image with ffmpeg
+# Multi-stage build: build Go binary, then run in a minimal alpine image with ffmpeg
 
 # ----- Builder stage -----
-FROM golang:1.25 AS builder
+FROM golang:1.25-alpine AS builder
+
+# git is needed by some Go module fetchers
+RUN apk add --no-cache git
 
 WORKDIR /app
 
-# Pre-copy go.mod/go.sum to leverage Docker cache
-COPY go.mod .
-COPY go.sum .
+# Pre-copy go.mod/go.sum to leverage Docker layer cache
+COPY go.mod go.sum ./
 RUN go mod download
 
 # Copy the rest of the source
 COPY . .
 
-# Build the binary (strip debug symbols to keep it small)
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o server ./cmd
+# Build a fully static binary (CGO disabled → no libc dependency)
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+    go build -trimpath -ldflags="-s -w" -o /app/server ./cmd
 
 # ----- Runtime stage -----
-FROM debian:12-slim
+FROM alpine:3.21
 
-# Install ffmpeg and CA certs (clean apt caches to keep the image small)
-RUN apt-get update \
-     && apt-get install -y --no-install-recommends \
-         ffmpeg \
-         ca-certificates \
-     && apt-get clean \
-     && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
+# ffmpeg + CA certs + timezone data — all in one layer, cache cleared
+RUN apk add --no-cache \
+        ffmpeg \
+        ca-certificates \
+        tzdata
 
 WORKDIR /app
 
-# Copy binary from builder
+# Copy compiled binary from builder
 COPY --from=builder /app/server /app/server
 
-# Create folders for uploads and outputs (app also ensures them, this is just explicit)
+# Create runtime directories (app also ensures them at startup)
 RUN mkdir -p /app/uploads /app/outputs
 
-#ENV GIN_MODE=release
+ENV GIN_MODE=release
+
 EXPOSE 8080
 
-CMD ["/app/server"]
+ENTRYPOINT ["/app/server"]

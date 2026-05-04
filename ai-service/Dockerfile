@@ -1,30 +1,46 @@
-# ── Dockerfile for VideoGuard AI Service ───────────────────────────────────
-# Multi-stage: builder installs deps, runtime is lean
-# For GPU support, swap base image to tensorflow/tensorflow:2.17.0-gpu
-
-FROM python:3.11-slim AS base
+# ----- Builder stage -----
+FROM python:3.11-slim AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1
+    PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-# ── System deps ────────────────────────────────────────────────────────────
+# Install system build tools + runtime libs needed to compile some wheels
 RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential \
         libgl1 \
-        libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
-# ── Python deps ────────────────────────────────────────────────────────────
 COPY requirements.txt .
-RUN pip install --upgrade pip && pip install -r requirements.txt
 
-# ── App source ─────────────────────────────────────────────────────────────
-COPY . .
+# Build wheels into a temp dir (no pip cache, no install overhead)
+RUN pip wheel --no-cache-dir --wheel-dir /app/wheels -r requirements.txt
 
-# Model directory (mount your .keras file here at runtime)
-RUN mkdir -p models
+# ----- Runtime stage -----
+FROM python:3.11-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+# Only runtime system libs — no gcc/build-essential
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libgl1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install from pre-built wheels (no compiler, no internet needed)
+COPY --from=builder /app/wheels /wheels
+RUN pip install --no-cache-dir /wheels/* \
+    && rm -rf /wheels
+
+# Copy only application source (models/ is excluded via .dockerignore)
+COPY app/ ./app/
+COPY run.py .
+
+# Mount point for model files — actual files are provided via Docker volume
+RUN mkdir -p /app/models
 
 EXPOSE 8000
 

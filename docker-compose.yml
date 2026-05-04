@@ -5,7 +5,7 @@ services:
     build:
       context: ./server
       dockerfile: Dockerfile
-    container_name: video-processing-demo
+    container_name: video-api
     ports:
       - "8080:8080"
     env_file:
@@ -17,33 +17,26 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      videoguard-ai:
+      videoguard-ai-effcientnet:
         condition: service_started
     networks:
       - video-network
     restart: unless-stopped
 
-  videoguard-ai:
+  videoguard-ai-effcientnet:
     build:
       context: ./ai-service
       dockerfile: Dockerfile
-    container_name: videoguard-ai
+    container_name: videoguard-ai-effcientnet
     ports:
       - "8000:8000"
     env_file:
       - ./ai-service/.env
+    volumes:
+      - ./ai-service/models:/app/models:ro
     networks:
       - video-network
     restart: unless-stopped
-    # ── GPU support (uncomment if host has NVIDIA GPU + nvidia-container-toolkit) ──
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: 1
-    #           capabilities: [gpu]
-
   redis:
     image: redis:7-alpine
     container_name: redis
