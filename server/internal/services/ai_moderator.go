@@ -192,7 +192,7 @@ func (a *AIModerator) sendChunk(framePaths []string) ([]aiFramePrediction, error
 		return nil, fmt.Errorf("finalize multipart: %w", err)
 	}
 
-	url := a.cfg.URL + "/images/predict/batch"
+	url := a.cfg.FrameModeratorUrl + "/images/predict/batch"
 	req, err := http.NewRequest(http.MethodPost, url, body)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
@@ -217,3 +217,91 @@ func (a *AIModerator) sendChunk(framePaths []string) ([]aiFramePrediction, error
 
 	return aiResp.Predictions, nil
 }
+
+// Send audio to audio-moderation service
+func (a *AIModerator) PredictAudioFile(videoID, audioPath string) (*model.AudioResult, error) {
+	if a.cfg.AudioModeratorUrl == "" {
+		return nil, fmt.Errorf("AudioModeratorUrl is not configured")
+	}
+
+	log.Printf("[audio_moderator] video=%s: sending audio to %s", videoID, a.cfg.AudioModeratorUrl)
+
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+
+	f, err := os.Open(audioPath)
+	if err != nil {
+		return nil, fmt.Errorf("open audio %s: %w", audioPath, err)
+	}
+	defer f.Close()
+
+	part, err := writer.CreateFormFile("file", filepath.Base(audioPath))
+	if err != nil {
+		return nil, fmt.Errorf("create form field: %w", err)
+	}
+	if _, err = io.Copy(part, f); err != nil {
+		return nil, fmt.Errorf("copy audio data: %w", err)
+	}
+	if err := writer.Close(); err != nil {
+		return nil, fmt.Errorf("finalize multipart: %w", err)
+	}
+
+	url := a.cfg.AudioModeratorUrl + "/audio/predict"
+	req, err := http.NewRequest(http.MethodPost, url, body)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	resp, err := a.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("POST %s: %w", url, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		raw, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("audio-moderation HTTP %d: %s", resp.StatusCode, string(raw))
+	}
+
+	type aiAudioResponse struct {
+		TotalSentences int `json:"total_sentences"`
+		FlaggedCount   int `json:"flagged_count"`
+		OverallLabel   string `json:"overall_label"`
+		Sentences      []struct {
+			Text       string             `json:"text"`
+			Label      string             `json:"label"`
+			LabelID    int                `json:"label_id"`
+			Confidence float64            `json:"confidence"`
+			Scores     map[string]float64 `json:"scores"`
+		} `json:"sentences"`
+	}
+
+	var aiResp aiAudioResponse
+	if err := json.NewDecoder(resp.Body).Decode(&aiResp); err != nil {
+		return nil, fmt.Errorf("decode audio response: %w", err)
+	}
+	
+	result := &model.AudioResult{
+		VideoID:        videoID,
+		TotalSentences: aiResp.TotalSentences,
+		FlaggedCount:   aiResp.FlaggedCount,
+		OverallLabel:   aiResp.OverallLabel,
+		Sentences:      make([]model.AudioSentence, 0, len(aiResp.Sentences)),
+	}
+	for _, s := range aiResp.Sentences {
+		result.Sentences = append(result.Sentences, model.AudioSentence{
+			Text:       s.Text,
+			Label:      s.Label,
+			LabelID:    s.LabelID,
+			Confidence: s.Confidence,
+			Scores:     s.Scores,
+		})
+	}
+
+	log.Printf("[audio_moderator] video=%s: done — sentences=%d flagged=%d verdict=%s",
+		videoID, result.TotalSentences, result.FlaggedCount, result.OverallLabel)
+
+	return result, nil
+}
+

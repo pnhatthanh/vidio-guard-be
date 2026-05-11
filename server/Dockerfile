@@ -36,8 +36,6 @@ COPY --from=builder /app/server /app/server
 # Create runtime directories (app also ensures them at startup)
 RUN mkdir -p /app/uploads /app/outputs
 
-ENV GIN_MODE=release
-
 EXPOSE 8080
 
 ENTRYPOINT ["/app/server"]

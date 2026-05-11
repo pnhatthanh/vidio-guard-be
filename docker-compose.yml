@@ -17,26 +17,44 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      videoguard-ai-effcientnet:
+      image-moderation:
+        condition: service_started
+      audio-moderation:
         condition: service_started
     networks:
       - video-network
     restart: unless-stopped
 
-  videoguard-ai-effcientnet:
+  image-moderation:
     build:
-      context: ./ai-service
+      context: ./image-moderation
       dockerfile: Dockerfile
-    container_name: videoguard-ai-effcientnet
+    container_name: image-moderation
     ports:
       - "8000:8000"
     env_file:
-      - ./ai-service/.env
+      - ./image-moderation/.env
     volumes:
-      - ./ai-service/models:/app/models:ro
+      - ./image-moderation/models:/app/models:ro
     networks:
       - video-network
     restart: unless-stopped
+
+  audio-moderation:
+    build:
+      context: ./audio-moderation
+      dockerfile: Dockerfile
+    container_name: audio-moderation
+    ports:
+      - "8001:8001"
+    env_file:
+      - ./audio-moderation/.env
+    volumes:
+      - ./audio-moderation/models:/app/models:ro
+    networks:
+      - video-network
+    restart: unless-stopped
+
   redis:
     image: redis:7-alpine
     container_name: redis

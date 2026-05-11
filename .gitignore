@@ -43,8 +43,14 @@ env/
 .coverage
 htmlcov/
 
-# ML model artifacts
-ai-service/models/efficientnetb3.keras
+# Ignore model files in ai-service
+image-moderation/models/*.keras
+
+# Ignore model files in audio-moderation
+audio-moderation/models/*.json
+audio-moderation/models/*.safetensors
+audio-moderation/models/*.codes
+audio-moderation/models/*.txt
 
 # =========================
 # IDE / Editor

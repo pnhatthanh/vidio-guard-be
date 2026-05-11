@@ -39,16 +39,12 @@ type ServerConfig struct {
 }
 
 type AIServiceConfig struct {
-	// Base URL of the Python FastAPI AI service, e.g. http://ai-service:8000
-	URL               string
+	FrameModeratorUrl string
 	NSFWThreshold     float64
 	ViolenceThreshold float64
-	// ChunkSize controls how many frames are sent per HTTP request (match AI batch_size).
-	// Default 32. Tune based on AI service memory / latency.
-	ChunkSize int
-	// EarlyExitCount: stop checking further chunks once this many frames are
-	// flagged (nsfw or violence). 0 = disabled (check every frame).
-	EarlyExitCount int
+	ChunkSize         int
+	EarlyExitCount    int
+	AudioModeratorUrl string
 }
 
 type Config struct {
@@ -97,11 +93,12 @@ func Load() (*Config, error) {
 			TTL:       getenvDuration("STATUS_TTL", 24*time.Hour),
 		},
 		AIService: AIServiceConfig{
-			URL:               getenv("AI_SERVICE_URL", "http://ai-service:8000"),
+			FrameModeratorUrl: getenv("AI_FRAME_MODERATOR_URL", "http://image-moderation:8000"),
 			NSFWThreshold:     getenvFloat("AI_NSFW_THRESHOLD", 0.6),
 			ViolenceThreshold: getenvFloat("AI_VIOLENCE_THRESHOLD", 0.6),
 			ChunkSize:         getenvInt("AI_CHUNK_SIZE", 32),
 			EarlyExitCount:    getenvInt("AI_EARLY_EXIT_COUNT", 3),
+			AudioModeratorUrl: getenv("AI_AUDIO_MODERATOR_URL", "http://audio-moderation:8000"),
 		},
 	}
 

@@ -61,15 +61,6 @@ func (p *FFmpegVideoProcessor) Process(job model.VideoJob) error {
 		audioOut,
 	}
 
-	audioChunksPattern := filepath.Join(audioChunksDir, "chunk_%03d.wav")
-	audioChunkArgs := []string{
-		"-i", audioOut,
-		"-f", "segment",
-		"-segment_time", "5",
-		"-c", "copy",
-		audioChunksPattern,
-	}
-
 	var (
 		wg        sync.WaitGroup
 		framesErr error
@@ -96,10 +87,7 @@ func (p *FFmpegVideoProcessor) Process(job model.VideoJob) error {
 	if audioErr != nil {
 		log.Printf("[processor] Warning: audio extraction failed: %v", audioErr)
 	} else {
-		log.Printf("[processor] Splitting audio into 5s chunks at %s", audioChunksDir)
-		if err := utils.RunFFmpeg(audioChunkArgs); err != nil {
-			log.Printf("[processor] Warning: audio chunking failed: %v", err)
-		}
+		log.Printf("[processor] Audio extracted successfully")
 	}
 
 	log.Printf("[processor] Done processing video: %s", job.VideoID)
@@ -111,11 +99,22 @@ func (p *FFmpegVideoProcessor) Process(job model.VideoJob) error {
 
 	result, err := p.AIModerator.PredictFramesDir(job.VideoID, framesDir)
 	if err != nil {
-		log.Printf("[processor] video=%s: AI moderation error: %v", job.VideoID, err)
-		return nil
+		log.Printf("[processor] video=%s: image AI moderation error: %v", job.VideoID, err)
+	} else {
+		logPredictionResult(result)
+	}
+	
+	if audioErr == nil {
+		audioResult, err := p.AIModerator.PredictAudioFile(job.VideoID, audioOut)
+		if err != nil {
+			log.Printf("[processor] video=%s: audio AI moderation error: %v", job.VideoID, err)
+		} else {
+			logAudioResult(audioResult)
+		}
+	} else {
+		log.Printf("[processor] video=%s: skipping audio moderation (audio extraction failed)", job.VideoID)
 	}
 
-	logPredictionResult(result)
 	return nil
 }
 
@@ -148,4 +147,36 @@ func logPredictionResult(r *model.PredictionResult) {
 		)
 	}
 	log.Printf("[ai_result] ============================================================")
+}
+
+// logAudioResult prints per-sentence PhoBERT results in a readable table,
+func logAudioResult(r *model.AudioResult) {
+	log.Printf("[audio_result] ============================================================")
+	log.Printf("[audio_result] Video          : %s", r.VideoID)
+	log.Printf("[audio_result] Sentences      : %d  |  Flagged: %d", r.TotalSentences, r.FlaggedCount)
+	log.Printf("[audio_result] VERDICT         : %s", r.OverallLabel)
+	log.Printf("[audio_result] ------------------------------------------------------------")
+	log.Printf("[audio_result] %-10s  %-10s  %-6s  %s", "Label", "Conf", "Flag", "Text")
+	log.Printf("[audio_result] ------------------------------------------------------------")
+	for _, s := range r.Sentences {
+		flagMark := "  "
+		if s.Label == "Offensive" || s.Label == "Hate" {
+			flagMark = "! "
+		}
+		// Truncate long sentences for readability
+		text := s.Text
+		if len(text) > 80 {
+			text = text[:77] + "..."
+		}
+		log.Printf("[audio_result] %s%-10s  %.4f    clean=%.3f offensive=%.3f hate=%.3f",
+			flagMark,
+			s.Label,
+			s.Confidence,
+			s.Scores["Clean"],
+			s.Scores["Offensive"],
+			s.Scores["Hate"],
+		)
+		log.Printf("[audio_result]    ↳ %s", text)
+	}
+	log.Printf("[audio_result] ============================================================")
 }
