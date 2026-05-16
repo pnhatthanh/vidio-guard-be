@@ -2,28 +2,23 @@ package services
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"io"
 	"path/filepath"
+	"strings"
 
 	"github.com/google/uuid"
+	"github.com/pnhatthanh/vidio-guard-be/internal/apperror"
 	"github.com/pnhatthanh/vidio-guard-be/internal/constants"
+	"github.com/pnhatthanh/vidio-guard-be/internal/dto"
 	"github.com/pnhatthanh/vidio-guard-be/internal/pkg"
 )
 
-var (
-	ErrUploadInvalidInput = errors.New("upload invalid input")
-	ErrUploadStore        = errors.New("upload store failed")
-	ErrUploadEnqueue      = errors.New("upload enqueue failed")
-)
-
-type VideoUploadService interface {
-	Upload(ctx context.Context, reader io.Reader, size int64, originalFilename, contentType string) (videoID string, status constants.VideoStatus, err error)
-}
-
 type VideoProcessEnqueuer interface {
 	EnqueueVideoProcess(videoID, objectKey string) error
+}
+
+type VideoUploadService interface {
+	Upload(ctx context.Context, reader io.Reader, size int64, filename, contentType string) (*dto.UploadVideoResponse, error)
 }
 
 type videoUploadService struct {
@@ -38,33 +33,41 @@ func NewVideoUploadService(enqueuer VideoProcessEnqueuer, store pkg.StoreProvide
 	}
 }
 
-func (s *videoUploadService) Upload(ctx context.Context, reader io.Reader, size int64, originalFilename, contentType string) (string, constants.VideoStatus, error) {
-	if ctx == nil {
-		return "", "", fmt.Errorf("%w: ctx is required", ErrUploadInvalidInput)
-	}
-	if reader == nil {
-		return "", "", fmt.Errorf("%w: reader is required", ErrUploadInvalidInput)
-	}
+func (s *videoUploadService) Upload(
+	ctx context.Context,
+	reader io.Reader,
+	size int64,
+	filename, contentType string,
+) (*dto.UploadVideoResponse, error) {
 	if size <= 0 {
-		return "", "", fmt.Errorf("%w: size must be > 0", ErrUploadInvalidInput)
+		return nil, apperror.NewBadRequestError("file size must be greater than 0")
 	}
 
 	videoID := uuid.NewString()
-
-	ext := filepath.Ext(originalFilename)
+	ext := filepath.Ext(filename)
 	if ext == "" {
 		ext = ".mp4"
 	}
 	objectKey := videoID + ext
+
+	contentType = strings.TrimSpace(contentType)
 	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
+
 	if err := s.store.Put(ctx, objectKey, reader, size, contentType); err != nil {
-		return "", "", fmt.Errorf("%w: %v", ErrUploadStore, err)
-	}
-	if err := s.enqueuer.EnqueueVideoProcess(videoID, objectKey); err != nil {
-		return videoID, constants.StatusFailed, fmt.Errorf("%w: %v", ErrUploadEnqueue, err)
+		return nil, apperror.NewInternalServerError("failed to store video")
 	}
 
-	return videoID, constants.StatusUploaded, nil
+	if err := s.enqueuer.EnqueueVideoProcess(videoID, objectKey); err != nil {
+		return &dto.UploadVideoResponse{
+			VideoID: videoID,
+			Status:  constants.StatusFailed,
+		}, apperror.NewInternalServerError("failed to enqueue video processing")
+	}
+
+	return &dto.UploadVideoResponse{
+		VideoID: videoID,
+		Status:  constants.StatusUploaded,
+	}, nil
 }

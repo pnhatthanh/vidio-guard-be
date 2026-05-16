@@ -38,6 +38,20 @@ type ServerConfig struct {
 	Addr string
 }
 
+type PostgresConfig struct {
+	DSN string 
+}
+
+type JWTConfig struct {
+	AccessSecret string
+	AccessTTL    time.Duration 
+	RefreshTTL   time.Duration
+}
+
+type GoogleConfig struct {
+	ClientID string
+}
+
 type AIServiceConfig struct {
 	FrameModeratorUrl string
 	NSFWThreshold     float64
@@ -50,6 +64,10 @@ type AIServiceConfig struct {
 type Config struct {
 	Server    ServerConfig
 	OutputDir string
+
+	Postgres PostgresConfig
+	JWT      JWTConfig
+	Google   GoogleConfig
 
 	Minio     MinioConfig
 	Redis     RedisConfig
@@ -69,6 +87,18 @@ func Load() (*Config, error) {
 			Addr: getenv("HTTP_ADDR", ":8080"),
 		},
 		OutputDir: getenv("OUTPUT_DIR", "outputs"),
+
+		Postgres: PostgresConfig{
+			DSN: getenv("POSTGRES_DSN", "postgres://postgres:postgres@postgres:5432/vidioguard?sslmode=disable"),
+		},
+		JWT: JWTConfig{
+			AccessSecret: getenv("JWT_ACCESS_SECRET", "your-access-secret-change-me"),
+			AccessTTL:    getenvDuration("JWT_ACCESS_TTL", 15*time.Minute),
+			RefreshTTL:   getenvDuration("JWT_REFRESH_TTL", 168*time.Hour),
+		},
+		Google: GoogleConfig{
+			ClientID: getenv("GOOGLE_CLIENT_ID", ""),
+		},
 
 		Minio: MinioConfig{
 			Endpoint:  getenv("MINIO_ENDPOINT", "minio:9000"),
@@ -116,6 +146,12 @@ func Load() (*Config, error) {
 	}
 	if cfg.Status.TTL <= 0 {
 		return &Config{}, fmt.Errorf("STATUS_TTL must be > 0")
+	}
+	if cfg.JWT.AccessTTL <= 0 {
+		return &Config{}, fmt.Errorf("JWT_ACCESS_TTL must be > 0")
+	}
+	if cfg.JWT.RefreshTTL <= 0 {
+		return &Config{}, fmt.Errorf("JWT_REFRESH_TTL must be > 0")
 	}
 
 	return cfg, nil

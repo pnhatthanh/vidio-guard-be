@@ -6,12 +6,17 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/pnhatthanh/vidio-guard-be/internal/config"
 	"github.com/pnhatthanh/vidio-guard-be/internal/handlers"
+	"github.com/pnhatthanh/vidio-guard-be/internal/pkg"
+	"github.com/pnhatthanh/vidio-guard-be/internal/services"
 )
 
 type Server struct {
 	cfg           *config.ServerConfig
 	router        *gin.Engine
 	uploadHandler handlers.UploadHandler
+	authHandler   handlers.AuthHandler
+	tokenService  services.TokenService
+	db            pkg.DBProvider
 }
 
 func newServer(cfg *config.ServerConfig) *Server {
@@ -26,6 +31,9 @@ func (s *Server) ListenAndServe() error {
 }
 
 func (s *Server) Shutdown(ctx context.Context) error {
+	if s != nil && s.db != nil {
+		_ = s.db.Close()
+	}
 	return nil
 }
 

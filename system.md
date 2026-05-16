@@ -181,7 +181,7 @@ erDiagram
         uuid id PK
         uuid user_id FK
         varchar original_filename
-        varchar minio_path
+        varchar video_url
         bigint file_size_bytes
         int duration_seconds
         varchar status
@@ -277,8 +277,8 @@ sequenceDiagram
 |---|-------|-------|
 | 0% | `starting` | Worker bắt đầu xử lý |
 | 15% | `frame_extraction` | FFmpeg đang tách frame |
-| 20–50% | `video_analysis` | EfficientNet phân tích từng frame |
-| 50% | `audio_extraction` | FFmpeg tách audio |
+| 20–50% | `audio_extraction` | FFmpeg tách audio |
+| 50% |  `video_analysis` | EfficientNet phân tích từng frame |
 | 50–75% | `audio_analysis` | Whisper + PhoBERT xử lý |
 | 90% | `aggregation` | Tổng hợp kết quả |
 | 100% | `completed` | Hoàn tất, lưu DB |

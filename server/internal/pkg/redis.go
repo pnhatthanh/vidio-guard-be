@@ -4,7 +4,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/pnhatthanh/vidio-guard-be/internal/config"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -18,11 +17,11 @@ type redisCache struct {
 	client *redis.Client
 }
 
-func NewCacheProvider(cfg *config.RedisConfig) (CacheProvider, error) {
+func NewCacheProvider(address, password string, db int) (CacheProvider, error) {
 	rdb := redis.NewClient(&redis.Options{
-		Addr:     cfg.Addr,
-		Password: cfg.Password,
-		DB:       cfg.DB,
+		Addr:     address,
+		Password: password,
+		DB:       db,
 	})
 
 	if err := rdb.Ping(context.Background()).Err(); err != nil {

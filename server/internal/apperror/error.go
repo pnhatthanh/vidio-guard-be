@@ -8,6 +8,7 @@ const (
 	ErrNotFound     ErrorType = "not_found"
 	ErrUnauthorized ErrorType = "unauthorized"
 	ErrForbidden    ErrorType = "forbidden"
+	ErrConflict     ErrorType = "conflict"
 )
 
 type AppError struct {
@@ -40,4 +41,7 @@ func NewUnauthorizedError(message string) *AppError {
 }
 func NewForbiddenError(message string) *AppError {
 	return NewAppError(403, ErrForbidden, message)
+}
+func NewDuplicateError(message string) *AppError {
+	return NewAppError(409, ErrConflict, message)
 }

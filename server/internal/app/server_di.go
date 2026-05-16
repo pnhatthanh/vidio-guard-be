@@ -11,32 +11,15 @@ import (
 	"github.com/pnhatthanh/vidio-guard-be/internal/handlers"
 	"github.com/pnhatthanh/vidio-guard-be/internal/pkg"
 	"github.com/pnhatthanh/vidio-guard-be/internal/queue"
+	"github.com/pnhatthanh/vidio-guard-be/internal/repository"
 	"github.com/pnhatthanh/vidio-guard-be/internal/services"
 	"github.com/pnhatthanh/vidio-guard-be/internal/worker"
 )
 
-func New(cfg *config.Config) (*App, error) {
-	c, err := buildInfra(cfg)
-	if err != nil {
-		return nil, fmt.Errorf("build infra: %w", err)
-	}
-	
-	server, err := buildServer(cfg, c)
-	if err != nil {
-		return nil, fmt.Errorf("build server: %w", err)
-	}
-
-	w, err := buildWorker(cfg, c)
-	if err != nil {
-		return nil, fmt.Errorf("build worker: %w", err)
-	}
-
-	return &App{config: cfg, server: server, worker: w}, nil
-}
-
 type container struct {
 	store    pkg.StoreProvider
 	cache    pkg.CacheProvider
+	db       pkg.DBProvider
 	enqueuer queue.Enqueuer
 }
 
@@ -51,9 +34,6 @@ func buildInfra(cfg *config.Config) (*container, error) {
 	if err != nil {
 		return nil, fmt.Errorf("init minio store: %w", err)
 	}
-
-	// Retry EnsureBucket until MinIO is ready (healthcheck guarantees it started,
-	// but the API may still need a moment on first boot).
 	const maxRetries = 10
 	const retryDelay = 3 * time.Second
 	for i := 1; i <= maxRetries; i++ {
@@ -68,9 +48,14 @@ func buildInfra(cfg *config.Config) (*container, error) {
 		}
 	}
 
-	cache, err := pkg.NewCacheProvider(&cfg.Redis)
+	cache, err := pkg.NewCacheProvider(cfg.Redis.Addr, cfg.Redis.Password, cfg.Redis.DB)
 	if err != nil {
 		return nil, fmt.Errorf("init redis cache: %w", err)
+	}
+
+	db, err := pkg.NewDBProvider(&cfg.Postgres)
+	if err != nil {
+		return nil, fmt.Errorf("init postgres db: %w", err)
 	}
 	redisOpt := asynq.RedisClientOpt{
 		Addr:     cfg.Redis.Addr,
@@ -87,15 +72,27 @@ func buildInfra(cfg *config.Config) (*container, error) {
 	return &container{
 		store:    store,
 		cache:    cache,
+		db:       db,
 		enqueuer: enqueuer,
 	}, nil
 }
 
 func buildServer(cfg *config.Config, c *container) (*Server, error) {
-	uploadHandler := handlers.NewUploadHandler(c.enqueuer, c.store)
+	userRepo := repository.NewUserRepository(c.db.DB())
+	tokenRepo := repository.NewTokenRepository(c.db.DB())
+
+	tokenSvc := services.NewTokenService(&cfg.JWT, c.cache)
+	authSvc := services.NewAuthService(userRepo, tokenRepo, tokenSvc, &cfg.Google, &cfg.JWT)
+	videoSvc := services.NewVideoUploadService(c.enqueuer, c.store)
+
+	authHandler := handlers.NewAuthHandler(authSvc)
+	uploadHandler := handlers.NewUploadHandler(videoSvc)
 
 	s := newServer(&cfg.Server)
 	s.uploadHandler = uploadHandler
+	s.authHandler = authHandler
+	s.tokenService = tokenSvc
+	s.db = c.db
 	s.registerMiddleware()
 	s.registerRoutes()
 
@@ -118,4 +115,3 @@ func buildWorker(cfg *config.Config, c *container) (*Worker, error) {
 
 	return w, nil
 }
-

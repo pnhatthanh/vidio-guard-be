@@ -14,6 +14,25 @@ type App struct {
 	worker *Worker
 }
 
+func New(cfg *config.Config) (*App, error) {
+	c, err := buildInfra(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("build infra: %w", err)
+	}
+
+	server, err := buildServer(cfg, c)
+	if err != nil {
+		return nil, fmt.Errorf("build server: %w", err)
+	}
+
+	w, err := buildWorker(cfg, c)
+	if err != nil {
+		return nil, fmt.Errorf("build worker: %w", err)
+	}
+
+	return &App{config: cfg, server: server, worker: w}, nil
+}
+
 func (a *App) Run(ctx context.Context) error {
 	errCh := make(chan error, 2)
 
