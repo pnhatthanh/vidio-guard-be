@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/pnhatthanh/vidio-guard-be/internal/config"
+	"github.com/pnhatthanh/vidio-guard-be/internal/model"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
@@ -43,6 +44,8 @@ func NewDBProvider(cfg *config.PostgresConfig) (DBProvider, error) {
 		_ = sqlDB.Close()
 		return nil, err
 	}
+	db.AutoMigrate(&model.User{}, &model.RefreshToken{}, &model.Video{}, 
+		&model.AudioResult{}, &model.FrameResult{}, &model.FinalVerdict{})
 
 	return &postgresDB{db: db}, nil
 }

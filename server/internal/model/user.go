@@ -14,6 +14,9 @@ type User struct {
 	PasswordHash string    `gorm:"column:password_hash"`
 	GoogleID     *string   `gorm:"column:google_id"`
 	CreatedAt    time.Time `gorm:"column:created_at;autoCreateTime"`
+
+	Videos        []Video        `gorm:"foreignKey:UserID;references:ID"`
+	RefreshTokens []RefreshToken `gorm:"foreignKey:UserID;references:ID"`
 }
 
 func (User) TableName() string { return "users" }

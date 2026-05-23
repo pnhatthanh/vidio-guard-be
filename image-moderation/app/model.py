@@ -91,7 +91,7 @@ def predict_batch(
         elif prob_map.get("violence", 0.0) > thr_violence:
             predicted_label = "violence"
         else:
-            predicted_label = max(prob_map, key=prob_map.get)  # type: ignore[arg-type]
+            predicted_label = "safe"  # type: ignore[arg-type]
 
         results.append({
             "label":      predicted_label,

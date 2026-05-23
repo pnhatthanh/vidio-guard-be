@@ -78,18 +78,22 @@ func buildInfra(cfg *config.Config) (*container, error) {
 }
 
 func buildServer(cfg *config.Config, c *container) (*Server, error) {
-	userRepo := repository.NewUserRepository(c.db.DB())
-	tokenRepo := repository.NewTokenRepository(c.db.DB())
+	gdb := c.db.DB()
+
+	userRepo := repository.NewUserRepository(gdb)
+	tokenRepo := repository.NewTokenRepository(gdb)
+	videoRepo := repository.NewVideoRepository(gdb)
+	verdictRepo := repository.NewFinalVerdictRepository(gdb)
 
 	tokenSvc := services.NewTokenService(&cfg.JWT, c.cache)
 	authSvc := services.NewAuthService(userRepo, tokenRepo, tokenSvc, &cfg.Google, &cfg.JWT)
-	videoSvc := services.NewVideoUploadService(c.enqueuer, c.store)
+	videoSvc := services.NewVideoService(videoRepo, verdictRepo, c.enqueuer, c.store)
 
 	authHandler := handlers.NewAuthHandler(authSvc)
-	uploadHandler := handlers.NewUploadHandler(videoSvc)
+	videoHandler := handlers.NewVideoHandler(videoSvc)
 
 	s := newServer(&cfg.Server)
-	s.uploadHandler = uploadHandler
+	s.videoHandler = videoHandler
 	s.authHandler = authHandler
 	s.tokenService = tokenSvc
 	s.db = c.db
@@ -104,13 +108,28 @@ func buildWorker(cfg *config.Config, c *container) (*Worker, error) {
 	if err != nil {
 		return nil, fmt.Errorf("init asynq worker: %w", err)
 	}
+
+	gdb := c.db.DB()
+	videoRepo := repository.NewVideoRepository(gdb)
+	frameRepo := repository.NewFrameResultRepository(gdb)
+	audioRepo := repository.NewAudioResultRepository(gdb)
+	verdictRepo := repository.NewFinalVerdictRepository(gdb)
+
+	progress := services.NewVideoProgress(videoRepo)
 	aiModerator := services.NewAIModerator(cfg.AIService)
 	processor := services.NewFFmpegVideoProcessor(cfg.OutputDir, aiModerator)
-	videoHandler := &worker.VideoProcessHandler{
-		Processor: processor,
-		Store:     c.store,
-		TempDir:   cfg.OutputDir,
-	}
+	processingSvc := services.NewVideoProcessingService(
+		videoRepo,
+		frameRepo,
+		audioRepo,
+		verdictRepo,
+		processor,
+		c.store,
+		progress,
+		cfg.OutputDir,
+	)
+
+	videoHandler := &worker.VideoProcessHandler{Processing: processingSvc}
 	w.RegisterHandler(worker.TypeVideoProcess, videoHandler.Handle)
 
 	return w, nil

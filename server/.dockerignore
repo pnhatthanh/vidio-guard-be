@@ -17,6 +17,7 @@ outputs/
 
 # Documentation
 docs/
+*.md
 
 # Test files
 *_test.go

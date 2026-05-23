@@ -18,7 +18,6 @@ func logPredictionResult(r *dto.PredictionResult) {
 	log.Printf("[ai_result] ============================================================")
 	log.Printf("[ai_result] Video          : %s", r.VideoID)
 	log.Printf("[ai_result] Frames checked : %d  |  Flagged: %d%s", r.Total, r.FlaggedCount, earlyStr)
-	log.Printf("[ai_result] VERDICT         : %s", r.OverallLabel)
 	log.Printf("[ai_result] ------------------------------------------------------------")
 	log.Printf("[ai_result] %-20s  %-10s  %-6s  %s", "Frame", "Label", "Conf", "Scores")
 	log.Printf("[ai_result] ------------------------------------------------------------")

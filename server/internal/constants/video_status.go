@@ -5,6 +5,6 @@ type VideoStatus string
 const (
 	StatusUploaded   VideoStatus = "uploaded"
 	StatusProcessing VideoStatus = "processing"
-	StatusDone       VideoStatus = "done"
+	StatusCompleted  VideoStatus = "completed"
 	StatusFailed     VideoStatus = "failed"
 )

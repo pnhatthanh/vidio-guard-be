@@ -1,18 +1,20 @@
 package services
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"path/filepath"
 	"sync"
 
+	"github.com/pnhatthanh/vidio-guard-be/internal/constants"
+	"github.com/pnhatthanh/vidio-guard-be/internal/dto"
 	"github.com/pnhatthanh/vidio-guard-be/internal/model"
 	"github.com/pnhatthanh/vidio-guard-be/internal/utils"
 )
 
-// VideoProcessor runs ffmpeg extraction and AI moderation for a video job.
 type VideoProcessor interface {
-	Process(job model.VideoJob) error
+	Process(ctx context.Context, job model.VideoJob, progress *VideoProgress) (*dto.ProcessingOutput, error)
 }
 
 type ffmpegVideoProcessor struct {
@@ -27,15 +29,19 @@ func NewFFmpegVideoProcessor(outputBasePath string, ai AIModerator) VideoProcess
 	}
 }
 
-func (p *ffmpegVideoProcessor) Process(job model.VideoJob) error {
-	framesDir := filepath.Join(p.outputBasePath, job.VideoID, "frames")
-	audioDir := filepath.Join(p.outputBasePath, job.VideoID, "audio")
-	audioChunksDir := filepath.Join(p.outputBasePath, job.VideoID, "audio_chunks")
+func (p *ffmpegVideoProcessor) Process(ctx context.Context, job model.VideoJob, progress *VideoProgress) (*dto.ProcessingOutput, error) {
+	videoID := job.VideoID
+	framesDir := filepath.Join(p.outputBasePath, videoID.String(), "frames")
+	audioDir := filepath.Join(p.outputBasePath, videoID.String(), "audio")
 
-	for _, dir := range []string{framesDir, audioDir, audioChunksDir} {
+	for _, dir := range []string{framesDir, audioDir} {
 		if err := utils.EnsureDir(dir); err != nil {
-			return fmt.Errorf("create dir %s: %w", dir, err)
+			return nil, fmt.Errorf("create dir %s: %w", dir, err)
 		}
+	}
+
+	if err := progress.Update(ctx, videoID, constants.StageStarting); err != nil {
+		return nil, err
 	}
 
 	framesPattern := filepath.Join(framesDir, "frame_%05d.jpg")
@@ -50,77 +56,102 @@ func (p *ffmpegVideoProcessor) Process(job model.VideoJob) error {
 	audioOut := filepath.Join(audioDir, "audio.wav")
 	audioArgs := []string{
 		"-i", job.VideoPath,
+		// lấy audio stream đầu tiên
+		"-map", "0:a:0",
+
+		// bỏ video
 		"-vn",
-		"-ac", "1",
-		"-ar", "16000",
-		"-acodec", "pcm_s16le",
+
+		// giữ stereo để preserve detail
+		"-ac", "2",
+
+		"-ar", "48000",
+
+		"-af",
+		"highpass=f=80," +
+			"lowpass=f=12000," +
+			"afftdn=nf=-20," +
+			"loudnorm",
+
+		// WAV PCM 32-bit float
+		"-c:a", "pcm_f32le",
 		audioOut,
 	}
 
 	var (
-		wg        sync.WaitGroup
-		framesErr error
-		audioErr  error
+		wg           sync.WaitGroup
+		moderationWG sync.WaitGroup
+		framesErr    error
+		audioErr     error
 	)
 
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		log.Printf("[processor] extracting frames to %s", framesPattern)
+		_ = progress.Update(ctx, videoID, constants.StageFrameExtraction)
+		log.Printf("[processor] video=%s: extracting frames", videoID)
 		framesErr = utils.RunFFmpeg(frameArgs)
 	}()
 	go func() {
 		defer wg.Done()
-		log.Printf("[processor] extracting audio to %s", audioOut)
+		_ = progress.Update(ctx, videoID, constants.StageAudioExtraction)
+		log.Printf("[processor] video=%s: extracting audio", videoID)
 		audioErr = utils.RunFFmpeg(audioArgs)
 	}()
 	wg.Wait()
 
 	if framesErr != nil {
-		return fmt.Errorf("extract frames: %w", framesErr)
+		return nil, fmt.Errorf("extract frames: %w", framesErr)
 	}
 	if audioErr != nil {
-		log.Printf("[processor] video=%s: audio extraction failed: %v", job.VideoID, audioErr)
-	} else {
-		log.Printf("[processor] video=%s: audio extracted", job.VideoID)
+		log.Printf("[processor] video=%s: audio extraction failed: %v", videoID, audioErr)
 	}
 
-	log.Printf("[processor] video=%s: ffmpeg done", job.VideoID)
+	out := &dto.ProcessingOutput{FramesDir: framesDir}
 
 	if p.ai == nil {
-		log.Printf("[processor] video=%s: AI moderator not configured, skipping", job.VideoID)
-		return nil
+		log.Printf("[processor] video=%s: AI moderator not configured", videoID)
+		return out, nil
 	}
-
-	var moderationWG sync.WaitGroup
 
 	moderationWG.Add(1)
 	go func() {
 		defer moderationWG.Done()
-		result, err := p.ai.PredictFramesDir(job.VideoID, framesDir)
+		err := progress.Update(ctx, videoID, constants.StageFrameAnalysis)
 		if err != nil {
-			log.Printf("[processor] video=%s: image moderation error: %v", job.VideoID, err)
+			log.Printf("[processor] video=%s: update progress error: %v", videoID, err)
 			return
 		}
-		logPredictionResult(result)
+		frames, err := p.ai.PredictFramesDir(videoID.String(), framesDir)
+		if err != nil {
+			log.Printf("[processor] video=%s: frame moderation error: %v", videoID, err)
+			return
+		}
+		out.Frames = frames
+		logPredictionResult(frames)
+
 	}()
 
 	if audioErr == nil {
 		moderationWG.Add(1)
 		go func() {
 			defer moderationWG.Done()
-			audioResult, err := p.ai.PredictAudioFile(job.VideoID, audioOut)
-			if err != nil {
-				log.Printf("[processor] video=%s: audio moderation error: %v", job.VideoID, err)
+			if err := progress.Update(ctx, videoID, constants.StageAudioAnalysis); err != nil {
+				log.Printf("[processor] video=%s: update progress error: %v", videoID, err)
 				return
 			}
-			logAudioResult(audioResult)
+			audio, err := p.ai.PredictAudioFile(videoID.String(), audioOut)
+			if err != nil {
+				log.Printf("[processor] video=%s: audio moderation error: %v", videoID, err)
+			} else {
+				out.Audio = audio
+				logAudioResult(audio)
+			}
 		}()
 	} else {
 		log.Printf("[processor] video=%s: skipping audio moderation", job.VideoID)
 	}
-
 	moderationWG.Wait()
 
-	return nil
+	return out, nil
 }

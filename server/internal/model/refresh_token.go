@@ -8,7 +8,8 @@ import (
 
 type RefreshToken struct {
 	ID        uuid.UUID `gorm:"type:uuid;default:gen_random_uuid();primaryKey;column:id"`
-	UserID    uuid.UUID `gorm:"type:uuid;column:user_id"`
+	UserID    uuid.UUID `gorm:"type:uuid;column:user_id;not null;index"`
+	User      User      `gorm:"foreignKey:UserID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE"`
 	TokenHash string    `gorm:"column:token_hash"`
 	ExpiresAt time.Time `gorm:"column:expires_at"`
 	IsRevoked bool      `gorm:"column:is_revoked;default:false"`

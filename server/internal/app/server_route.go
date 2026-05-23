@@ -12,9 +12,10 @@ func (s *Server) registerRoutes() {
 			auth.POST("/logout", s.JWTMiddleware(), s.authHandler.Logout())
 		}
 
-		videos := v1.Group("/videos")
+		videos := v1.Group("/videos", s.JWTMiddleware())
 		{
-			videos.POST("/upload", s.uploadHandler.UploadVideo())
+			videos.POST("/upload", s.videoHandler.Upload())
+			videos.GET("/:id/status", s.videoHandler.GetStatus())
 		}
 	}
 }

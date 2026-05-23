@@ -13,7 +13,7 @@ import (
 type Server struct {
 	cfg           *config.ServerConfig
 	router        *gin.Engine
-	uploadHandler handlers.UploadHandler
+	videoHandler  handlers.VideoHandler
 	authHandler   handlers.AuthHandler
 	tokenService  services.TokenService
 	db            pkg.DBProvider
