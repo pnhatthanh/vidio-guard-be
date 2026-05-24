@@ -44,8 +44,8 @@ func NewDBProvider(cfg *config.PostgresConfig) (DBProvider, error) {
 		_ = sqlDB.Close()
 		return nil, err
 	}
-	db.AutoMigrate(&model.User{}, &model.RefreshToken{}, &model.Video{}, 
-		&model.AudioResult{}, &model.FrameResult{}, &model.FinalVerdict{})
+	db.AutoMigrate(&model.User{}, &model.RefreshToken{}, &model.Video{},
+		&model.FinalVerdict{}, &model.ViolationSegment{})
 
 	return &postgresDB{db: db}, nil
 }

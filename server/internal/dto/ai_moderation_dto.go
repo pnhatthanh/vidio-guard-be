@@ -22,6 +22,8 @@ type AudioSentence struct {
 	LabelID    int                `json:"label_id"`
 	Confidence float64            `json:"confidence"`
 	Scores     map[string]float64 `json:"scores"`
+	StartSec   float64            `json:"start_sec"`
+	EndSec     float64            `json:"end_sec"`
 }
 
 type AudioResult struct {
@@ -37,7 +39,7 @@ func IsFlaggedFrameLabel(label string) bool {
 }
 
 func IsFlaggedAudioLabel(label string) bool {
-	return label == "Offensive" || label == "Hate"
+	return label == "Toxic"
 }
 
 func OverallFrameLabel(predictions []FrameResult) string {

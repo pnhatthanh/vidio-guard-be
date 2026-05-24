@@ -60,13 +60,12 @@ func logAudioResult(r *dto.AudioResult) {
 		if len(text) > 80 {
 			text = text[:77] + "..."
 		}
-		log.Printf("[audio_result] %s%-10s  %.4f    clean=%.3f offensive=%.3f hate=%.3f",
+		log.Printf("[audio_result] %s%-10s  %.4f    clean=%.3f toxic=%.3f",
 			flagMark,
 			s.Label,
 			s.Confidence,
 			s.Scores["Clean"],
-			s.Scores["Offensive"],
-			s.Scores["Hate"],
+			s.Scores["Toxic"],
 		)
 		log.Printf("[audio_result]    ↳ %s", text)
 	}

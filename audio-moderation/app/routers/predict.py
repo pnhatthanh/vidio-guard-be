@@ -63,9 +63,9 @@ async def predict_audio(
     try:
         # ── 2. Transcribe ──────────────────────────────────────────────────────
         logger.info("[audio_predict] Transcribing uploaded file: %s", file.filename)
-        sentences_text = transcribe_audio(tmp_path)
+        segments = transcribe_audio(tmp_path)
 
-        if not sentences_text:
+        if not segments:
             logger.warning("[audio_predict] No speech detected in audio file")
             return AudioPredictResponse(
                 total_sentences=0,
@@ -75,13 +75,19 @@ async def predict_audio(
             )
 
         # ── 3. PhoBERT inference ───────────────────────────────────────────────
-        logger.info("[audio_predict] Running PhoBERT on %d sentence(s)", len(sentences_text))
-        preds = phobert.predict(sentences_text)
+        texts = [s.text for s in segments]
+        logger.info("[audio_predict] Running PhoBERT on %d sentence(s)", len(texts))
+        preds = phobert.predict(texts)
 
         # ── 4. Assemble response ───────────────────────────────────────────────
         sentence_results: list[SentencePrediction] = [
-            SentencePrediction(text=txt, **pred)
-            for txt, pred in zip(sentences_text, preds)
+            SentencePrediction(
+                text=seg.text,
+                start_sec=seg.start_sec,
+                end_sec=seg.end_sec,
+                **pred,
+            )
+            for seg, pred in zip(segments, preds)
         ]
 
         flagged = sum(1 for s in sentence_results if s.label in _FLAGGED_LABELS)

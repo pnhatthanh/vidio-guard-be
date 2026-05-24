@@ -12,10 +12,23 @@ func (s *Server) registerRoutes() {
 			auth.POST("/logout", s.JWTMiddleware(), s.authHandler.Logout())
 		}
 
+		users := v1.Group("/users", s.JWTMiddleware())
+		{
+			users.GET("/me", s.userHandler.GetMe())
+			users.PATCH("/me", s.userHandler.UpdateMe())
+			users.PATCH("/me/password", s.userHandler.ChangePassword())
+		}
+
 		videos := v1.Group("/videos", s.JWTMiddleware())
 		{
+			videos.GET("", s.videoHandler.List())
 			videos.POST("/upload", s.videoHandler.Upload())
 			videos.GET("/:id/status", s.videoHandler.GetStatus())
+		}
+
+		wsGroup := v1.Group("/ws")
+		{
+			wsGroup.GET("/pipeline", s.pipelineWS.HandlePipeline())
 		}
 	}
 }

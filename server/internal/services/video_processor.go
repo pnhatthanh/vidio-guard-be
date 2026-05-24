@@ -9,12 +9,11 @@ import (
 
 	"github.com/pnhatthanh/vidio-guard-be/internal/constants"
 	"github.com/pnhatthanh/vidio-guard-be/internal/dto"
-	"github.com/pnhatthanh/vidio-guard-be/internal/model"
 	"github.com/pnhatthanh/vidio-guard-be/internal/utils"
 )
 
 type VideoProcessor interface {
-	Process(ctx context.Context, job model.VideoJob, progress *VideoProgress) (*dto.ProcessingOutput, error)
+	Process(ctx context.Context, job dto.VideoJob, progress *VideoProgress) (*dto.ProcessingOutput, error)
 }
 
 type ffmpegVideoProcessor struct {
@@ -29,7 +28,7 @@ func NewFFmpegVideoProcessor(outputBasePath string, ai AIModerator) VideoProcess
 	}
 }
 
-func (p *ffmpegVideoProcessor) Process(ctx context.Context, job model.VideoJob, progress *VideoProgress) (*dto.ProcessingOutput, error) {
+func (p *ffmpegVideoProcessor) Process(ctx context.Context, job dto.VideoJob, progress *VideoProgress) (*dto.ProcessingOutput, error) {
 	videoID := job.VideoID
 	framesDir := filepath.Join(p.outputBasePath, videoID.String(), "frames")
 	audioDir := filepath.Join(p.outputBasePath, videoID.String(), "audio")
@@ -107,7 +106,7 @@ func (p *ffmpegVideoProcessor) Process(ctx context.Context, job model.VideoJob, 
 		log.Printf("[processor] video=%s: audio extraction failed: %v", videoID, audioErr)
 	}
 
-	out := &dto.ProcessingOutput{FramesDir: framesDir}
+	out := &dto.ProcessingOutput{}
 
 	if p.ai == nil {
 		log.Printf("[processor] video=%s: AI moderator not configured", videoID)

@@ -11,21 +11,26 @@ import (
 	"github.com/pnhatthanh/vidio-guard-be/internal/handlers"
 	"github.com/pnhatthanh/vidio-guard-be/internal/pkg"
 	"github.com/pnhatthanh/vidio-guard-be/internal/queue"
+	"github.com/pnhatthanh/vidio-guard-be/internal/realtime"
 	"github.com/pnhatthanh/vidio-guard-be/internal/repository"
 	"github.com/pnhatthanh/vidio-guard-be/internal/services"
+	"github.com/pnhatthanh/vidio-guard-be/internal/ws"
 	"github.com/pnhatthanh/vidio-guard-be/internal/worker"
 )
 
 type container struct {
-	store    pkg.StoreProvider
-	cache    pkg.CacheProvider
-	db       pkg.DBProvider
-	enqueuer queue.Enqueuer
+	store           pkg.StoreProvider
+	cache           pkg.CacheProvider
+	db              pkg.DBProvider
+	enqueuer        queue.Enqueuer
+	progressPublish *realtime.RedisPubSub
+	progressSub     *realtime.RedisPubSub
 }
 
 func buildInfra(cfg *config.Config) (*container, error) {
 	store, err := pkg.NewStoreProvider(
 		cfg.Minio.Endpoint,
+		cfg.Minio.PublicEndpoint,
 		cfg.Minio.AccessKey,
 		cfg.Minio.SecretKey,
 		cfg.Minio.UseSSL,
@@ -69,11 +74,34 @@ func buildInfra(cfg *config.Config) (*container, error) {
 		cfg.Asynq.MaxRetry,
 		cfg.Asynq.TaskTimeout,
 	)
+
+	progressPublish, err := realtime.NewRedisPubSub(
+		cfg.Redis.Addr,
+		cfg.Redis.Password,
+		cfg.Redis.DB,
+		cfg.Redis.ProgressChannel,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("init redis progress publisher: %w", err)
+	}
+	progressSub, err := realtime.NewRedisPubSub(
+		cfg.Redis.Addr,
+		cfg.Redis.Password,
+		cfg.Redis.DB,
+		cfg.Redis.ProgressChannel,
+	)
+	if err != nil {
+		_ = progressPublish.Close()
+		return nil, fmt.Errorf("init redis progress subscriber: %w", err)
+	}
+
 	return &container{
-		store:    store,
-		cache:    cache,
-		db:       db,
-		enqueuer: enqueuer,
+		store:           store,
+		cache:           cache,
+		db:              db,
+		enqueuer:        enqueuer,
+		progressPublish: progressPublish,
+		progressSub:     progressSub,
 	}, nil
 }
 
@@ -84,18 +112,29 @@ func buildServer(cfg *config.Config, c *container) (*Server, error) {
 	tokenRepo := repository.NewTokenRepository(gdb)
 	videoRepo := repository.NewVideoRepository(gdb)
 	verdictRepo := repository.NewFinalVerdictRepository(gdb)
+	violationRepo := repository.NewViolationSegmentRepository(gdb)
 
 	tokenSvc := services.NewTokenService(&cfg.JWT, c.cache)
 	authSvc := services.NewAuthService(userRepo, tokenRepo, tokenSvc, &cfg.Google, &cfg.JWT)
-	videoSvc := services.NewVideoService(videoRepo, verdictRepo, c.enqueuer, c.store)
+	userSvc := services.NewUserService(userRepo)
+	videoSvc := services.NewVideoService(videoRepo, verdictRepo, violationRepo, c.enqueuer, c.store, cfg.Minio.PresignURLTTL)
 
 	authHandler := handlers.NewAuthHandler(authSvc)
+	userHandler := handlers.NewUserHandler(userSvc)
 	videoHandler := handlers.NewVideoHandler(videoSvc)
+
+	hub := ws.NewHub()
+	pipelineWS := ws.NewPipelineHandler(hub, tokenSvc)
 
 	s := newServer(&cfg.Server)
 	s.videoHandler = videoHandler
+	s.userHandler = userHandler
 	s.authHandler = authHandler
 	s.tokenService = tokenSvc
+	s.pipelineWS = pipelineWS
+	s.hub = hub
+	s.progressSub = c.progressSub
+	s.progressPublish = c.progressPublish
 	s.db = c.db
 	s.registerMiddleware()
 	s.registerRoutes()
@@ -111,21 +150,21 @@ func buildWorker(cfg *config.Config, c *container) (*Worker, error) {
 
 	gdb := c.db.DB()
 	videoRepo := repository.NewVideoRepository(gdb)
-	frameRepo := repository.NewFrameResultRepository(gdb)
-	audioRepo := repository.NewAudioResultRepository(gdb)
 	verdictRepo := repository.NewFinalVerdictRepository(gdb)
+	violationRepo := repository.NewViolationSegmentRepository(gdb)
 
-	progress := services.NewVideoProgress(videoRepo)
+	progress := services.NewVideoProgress(videoRepo, c.progressPublish)
 	aiModerator := services.NewAIModerator(cfg.AIService)
 	processor := services.NewFFmpegVideoProcessor(cfg.OutputDir, aiModerator)
+	scorer := services.NewModerationScorer(cfg.Moderation)
 	processingSvc := services.NewVideoProcessingService(
 		videoRepo,
-		frameRepo,
-		audioRepo,
 		verdictRepo,
+		violationRepo,
 		processor,
 		c.store,
 		progress,
+		scorer,
 		cfg.OutputDir,
 	)
 

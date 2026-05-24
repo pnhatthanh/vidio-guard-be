@@ -21,9 +21,36 @@ type Video struct {
 	UploadedAt       time.Time             `gorm:"column:uploaded_at;autoCreateTime"`
 	ProcessedAt      *time.Time            `gorm:"column:processed_at"`
 
-	AudioResult  *AudioResult  `gorm:"foreignKey:VideoID;references:ID"`
-	FrameResults []FrameResult `gorm:"foreignKey:VideoID;references:ID"`
-	FinalVerdict *FinalVerdict `gorm:"foreignKey:VideoID;references:ID"`
+	FinalVerdict *FinalVerdict      `gorm:"foreignKey:VideoID;references:ID"`
+	Violations   []ViolationSegment `gorm:"foreignKey:VideoID;references:ID"`
+
 }
 
 func (Video) TableName() string { return "videos" }
+
+type VideoListParams struct {
+	UserID uuid.UUID
+	Search string
+	Status constants.VideoStatus 
+	Filter string                
+	Since  *time.Time          
+	Sort   string
+	Desc   bool
+	Offset int
+	Limit  int
+}
+
+type VideoListRow struct {
+	ID               uuid.UUID
+	VideoURL         string // object key in MinIO
+	OriginalFilename string
+	FileSizeBytes    int64
+	Status           constants.VideoStatus
+	ProgressPercent  int
+	CurrentStage     string
+	UploadedAt       time.Time
+	ProcessedAt      *time.Time
+	Verdict          *string
+	RiskScore        *float64
+	ViolationCount   int64
+}

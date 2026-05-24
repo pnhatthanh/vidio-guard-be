@@ -42,7 +42,7 @@ func (a *App) Run(ctx context.Context) error {
 			errCh <- fmt.Errorf("asynq worker: %w", err)
 		}
 	}()
-
+	a.server.RunRealtime(ctx)
 	go func() {
 		log.Printf("[http] listening on %s", a.server.Addr())
 		if err := a.server.ListenAndServe(); err != nil {

@@ -9,6 +9,8 @@ class SentencePrediction(BaseModel):
     label_id:   int   = Field(..., description="0=Clean, 1=Offensive, 2=Hate")
     confidence: float = Field(..., ge=0.0, le=1.0, description="Top-class confidence")
     scores:     dict[str, float] = Field(..., description="Softmax scores per class")
+    start_sec:  float = Field(..., ge=0.0, description="Segment start time in seconds")
+    end_sec:    float = Field(..., ge=0.0, description="Segment end time in seconds")
 
 
 # ── Full audio predict response ────────────────────────────────────────────────

@@ -9,17 +9,20 @@ import (
 )
 
 type MinioConfig struct {
-	Endpoint  string
-	AccessKey string
-	SecretKey string
-	Bucket    string
-	UseSSL    bool
+	Endpoint         string
+	PublicEndpoint   string // browser-facing host for presigned URLs (e.g. http://localhost:9000)
+	AccessKey        string
+	SecretKey        string
+	Bucket           string
+	UseSSL           bool
+	PresignURLTTL    time.Duration
 }
 
 type RedisConfig struct {
-	Addr     string
-	Password string
-	DB       int
+	Addr            string
+	Password        string
+	DB              int
+	ProgressChannel string
 }
 
 type AsynqConfig struct {
@@ -61,6 +64,22 @@ type AIServiceConfig struct {
 	AudioModeratorUrl string
 }
 
+// ModerationConfig controls risk scoring, fusion weights, and hard rules.
+type ModerationConfig struct {
+	FrameWeight            float64
+	AudioWeight            float64
+	SafeThreshold          float64
+	ViolationThreshold     float64
+	MaxLabelWeight         float64
+	HardNsfwConfidence     float64
+	HardNsfwSec            float64
+	HardViolenceFrames     int
+	HardToxicSec           float64
+	HardToxicCoverageRatio float64 // total toxic time / video duration → violation
+	HardToxicSegmentCount  int     // flagged sentences count → violation
+	HardToxicTotalSec      float64 // merged toxic duration → violation
+}
+
 type Config struct {
 	Server    ServerConfig
 	OutputDir string
@@ -73,7 +92,8 @@ type Config struct {
 	Redis     RedisConfig
 	Asynq     AsynqConfig
 	Status    StatusConfig
-	AIService AIServiceConfig
+	AIService   AIServiceConfig
+	Moderation  ModerationConfig
 }
 
 func Load() (*Config, error) {
@@ -101,16 +121,19 @@ func Load() (*Config, error) {
 		},
 
 		Minio: MinioConfig{
-			Endpoint:  getenv("MINIO_ENDPOINT", "minio:9000"),
-			AccessKey: getenv("MINIO_ACCESS_KEY", "minioadmin"),
-			SecretKey: getenv("MINIO_SECRET_KEY", "minioadmin"),
-			Bucket:    getenv("MINIO_BUCKET", "videos"),
-			UseSSL:    getenvBool("MINIO_USE_SSL", false),
+			Endpoint:       getenv("MINIO_ENDPOINT", "minio:9000"),
+			PublicEndpoint: getenv("MINIO_PUBLIC_ENDPOINT", "http://localhost:9000"),
+			AccessKey:      getenv("MINIO_ACCESS_KEY", "minioadmin"),
+			SecretKey:      getenv("MINIO_SECRET_KEY", "minioadmin"),
+			Bucket:         getenv("MINIO_BUCKET", "videos"),
+			UseSSL:         getenvBool("MINIO_USE_SSL", false),
+			PresignURLTTL:  getenvDuration("MINIO_PRESIGN_TTL", time.Hour),
 		},
 		Redis: RedisConfig{
-			Addr:     getenv("REDIS_ADDR", "redis:6379"),
-			Password: getenv("REDIS_PASSWORD", ""),
-			DB:       getenvInt("REDIS_DB", 0),
+			Addr:            getenv("REDIS_ADDR", "redis:6379"),
+			Password:        getenv("REDIS_PASSWORD", ""),
+			DB:              getenvInt("REDIS_DB", 0),
+			ProgressChannel: getenv("REDIS_PROGRESS_CHANNEL", "videoguard:video:progress"),
 		},
 		Asynq: AsynqConfig{
 			Queue:       getenv("ASYNQ_QUEUE", "video"),
@@ -129,6 +152,20 @@ func Load() (*Config, error) {
 			ChunkSize:         getenvInt("AI_CHUNK_SIZE", 32),
 			EarlyExitCount:    getenvInt("AI_EARLY_EXIT_COUNT", 3),
 			AudioModeratorUrl: getenv("AI_AUDIO_MODERATOR_URL", "http://audio-moderation:8000"),
+		},
+		Moderation: ModerationConfig{
+			FrameWeight:        getenvFloat("MOD_FRAME_WEIGHT", 0.7),
+			AudioWeight:        getenvFloat("MOD_AUDIO_WEIGHT", 0.3),
+			SafeThreshold:      getenvFloat("MOD_SAFE_THRESHOLD", 0.3),
+			ViolationThreshold: getenvFloat("MOD_VIOLATION_THRESHOLD", 0.6),
+			MaxLabelWeight:     getenvFloat("MOD_MAX_LABEL_WEIGHT", 5),
+			HardNsfwConfidence: getenvFloat("MOD_HARD_NSFW_CONF", 0.98),
+			HardNsfwSec:        getenvFloat("MOD_HARD_NSFW_SEC", 5),
+			HardViolenceFrames:     getenvInt("MOD_HARD_VIOLENCE_FRAMES", 10),
+			HardToxicSec:           getenvFloat("MOD_HARD_TOXIC_SEC", 15),
+			HardToxicCoverageRatio: getenvFloat("MOD_HARD_TOXIC_COVERAGE", 0.15),
+			HardToxicSegmentCount:  getenvInt("MOD_HARD_TOXIC_SEGMENTS", 8),
+			HardToxicTotalSec:      getenvFloat("MOD_HARD_TOXIC_TOTAL_SEC", 45),
 		},
 	}
 
@@ -152,6 +189,12 @@ func Load() (*Config, error) {
 	}
 	if cfg.JWT.RefreshTTL <= 0 {
 		return &Config{}, fmt.Errorf("JWT_REFRESH_TTL must be > 0")
+	}
+	if cfg.Moderation.MaxLabelWeight <= 0 {
+		return &Config{}, fmt.Errorf("MOD_MAX_LABEL_WEIGHT must be > 0")
+	}
+	if cfg.Moderation.SafeThreshold < 0 || cfg.Moderation.ViolationThreshold <= cfg.Moderation.SafeThreshold {
+		return &Config{}, fmt.Errorf("MOD_SAFE_THRESHOLD must be < MOD_VIOLATION_THRESHOLD")
 	}
 
 	return cfg, nil

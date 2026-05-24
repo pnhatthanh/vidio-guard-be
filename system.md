@@ -105,8 +105,7 @@ flowchart LR
     C -->|"transcript\ntiếng Việt"| D["📝\nPhoBERT\nvinai/phobert-base-v2"]
     D --> E["🏷️\nClassification\nHead"]
     E --> F1["✅ clean"]
-    E --> F2["❌ offensive"]
-    E --> F3["❌ hate"]
+    E --> F2["❌ toxic"]
 
     style A fill:#1e3a5f,color:#fff,stroke:#3b82f6
     style B fill:#1e3a5f,color:#fff,stroke:#3b82f6
@@ -115,8 +114,6 @@ flowchart LR
     style E fill:#4a1d96,color:#fff,stroke:#a855f7
     style F1 fill:#14532d,color:#fff,stroke:#22c55e
     style F2 fill:#7f1d1d,color:#fff,stroke:#ef4444
-    style F3 fill:#7f1d1d,color:#fff,stroke:#ef4444
-    style F4 fill:#7f1d1d,color:#fff,stroke:#ef4444
 ```
 
 ---
@@ -191,43 +188,31 @@ erDiagram
         timestamp processed_at
     }
 
-    FRAME_RESULTS {
-        uuid id PK
-        uuid video_id FK
-        int frame_number
-        varchar frame_url
-        float8 timestamp_seconds
-        float8 violence_score
-        float8 nsfw_score
-        float8 safe_score
-        varchar predicted_label
-    }
-
-    AUDIO_RESULTS {
-        uuid id PK
-        uuid video_id FK
-        text transcript
-        float8 offensive_score
-        float8 hate_score
-        float8 clean_score
-        varchar predicted_label
-    }
-
     FINAL_VERDICTS {
         uuid id PK
         uuid video_id FK
         varchar verdict
+        text transcript
         float8 risk_score
         float8 peak_violence_score
         float8 peak_nsfw_score
         int flagged_frames_count
-        jsonb flagged_timestamps
+    }
+
+    VIOLATION_SEGMENTS {
+        uuid id PK
+        uuid video_id FK
+        varchar source
+        varchar category
+        float8 start_sec
+        float8 end_sec
+        float8 peak_score
+        text evidence
     }
 
     USERS ||--o{ VIDEOS : "uploads"
-    VIDEOS ||--o{ FRAME_RESULTS : "has frames"
-    VIDEOS ||--o| AUDIO_RESULTS : "has audio"
     VIDEOS ||--o| FINAL_VERDICTS : "receives verdict"
+    VIDEOS ||--o{ VIOLATION_SEGMENTS : "has violation ranges"
 ```
 
 ---

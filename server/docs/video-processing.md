@@ -18,9 +18,9 @@ Dẫn chứng:
 - Schema cột trạng thái/tiến độ trong migration: [migrations/002_videos.sql](../../migrations/002_videos.sql#L4-L15)
 - Model mapping sang struct: [server/internal/model/video.go](../internal/model/video.go#L10-L24)
 
-Các bảng kết quả moderation (được ghi ở bước “aggregation/persist”):
+Các bảng kết quả moderation (persist ở bước aggregation):
 
-- `frame_results`, `audio_results`, `final_verdicts`: [migrations/002_videos.sql](../../migrations/002_videos.sql#L17-L60)
+- `final_verdicts`, `violation_segments`: [migrations/004_violation_segments.sql](../../migrations/004_violation_segments.sql), [migrations/005_slim_moderation_results.sql](../../migrations/005_slim_moderation_results.sql)
 
 ---
 
@@ -131,7 +131,7 @@ App khởi động cả worker và HTTP server song song:
 - Nếu lỗi ở bước này: mark `failed`: [server/internal/services/video_processing_service.go](../internal/services/video_processing_service.go#L74-L77)
 
 4) Update stage `aggregation` (progress=90): [server/internal/services/video_processing_service.go](../internal/services/video_processing_service.go#L79-L81)
-5) Persist kết quả vào DB (`frame_results`, `audio_results`, `final_verdicts`): [server/internal/services/video_processing_service.go](../internal/services/video_processing_service.go#L117-L146)
+5) Persist kết quả vào DB (`final_verdicts`, `violation_segments`): [server/internal/services/video_processing_service.go](../internal/services/video_processing_service.go)
 6) Mark completed: [server/internal/services/video_processing_service.go](../internal/services/video_processing_service.go#L87-L88)
 
 ---
@@ -195,24 +195,25 @@ Trước khi insert kết quả mới, service xóa kết quả cũ theo `video_
 
 - [server/internal/services/video_processing_service.go](../internal/services/video_processing_service.go#L122-L124)
 
-### 8.2 Map frame results
+### 8.2 Build final verdict & transcript
 
-- Map predictions → `frame_results`, timestamp được tính kiểu “1 frame ~ 1 giây” từ `frame_number`: [server/internal/services/video_moderation_mapper.go](../internal/services/video_moderation_mapper.go#L18-L41)
+- Verdict + transcript + peak scores tính in-memory từ AI output: [server/internal/services/video_moderation_mapper.go](../internal/services/video_moderation_mapper.go)
 
-### 8.3 Map audio result
-
-- Transcript là nối các câu; điểm số audio lấy peak theo từng loại (`Offensive/Hate/Clean`): [server/internal/services/video_moderation_mapper.go](../internal/services/video_moderation_mapper.go#L44-L68)
-
-### 8.4 Build final verdict
-
-- Peak score video lấy max giữa `nsfw` và `violence`; audio góp thêm `Offensive/Hate` peak; `risk_score` = max của các peak này: [server/internal/services/video_moderation_mapper.go](../internal/services/video_moderation_mapper.go#L70-L121)
-- Rule gộp verdict (ưu tiên nsfw/hate > violence/offensive > các label khác): [server/internal/services/video_moderation_mapper.go](../internal/services/video_moderation_mapper.go#L124-L137)
+- `risk_score` = max(peak `nsfw`, peak `violence` từ frames, peak `Toxic` từ audio): [server/internal/services/video_moderation_mapper.go](../internal/services/video_moderation_mapper.go#L70-L121)
+- Rule gộp verdict: frame `nsfw` → `nsfw`; frame `violence` hoặc audio `Toxic` → `violence`; còn lại → `safe`
+- `violated = (verdict != "safe")` trong API status: [server/internal/dto/video_dto.go](../internal/dto/video_dto.go), [server/internal/services/video_service.go](../internal/services/video_service.go)
 - Điều kiện “flagged frame” là label `nsfw` hoặc `violence`: [server/internal/dto/ai_moderation_dto.go](../internal/dto/ai_moderation_dto.go#L35-L37)
 - Overall label cho frames: ưu tiên `nsfw` rồi `violence` rồi `safe`: [server/internal/dto/ai_moderation_dto.go](../internal/dto/ai_moderation_dto.go#L43-L58)
 
-### 8.5 Persist
+### 8.5 Violation time segments
 
-- Insert batch frames, insert audio (nếu có), insert final verdict: [server/internal/services/video_processing_service.go](../internal/services/video_processing_service.go#L126-L143)
+- Visual: gộp frame flagged (`nsfw`/`violence`) thành khoảng `[start_sec, end_sec]` (~1s/frame + merge gap 1s): [server/internal/services/violation_segment_builder.go](../internal/services/violation_segment_builder.go)
+- Audio: mỗi câu `Toxic` dùng `start_sec`/`end_sec` từ Whisper (API audio moderation trả kèm mỗi sentence)
+- Lưu bảng `violation_segments`; migration: [migrations/004_violation_segments.sql](../../migrations/004_violation_segments.sql)
+
+### 8.6 Persist
+
+- Insert batch frames, audio, final verdict, violation segments: [server/internal/services/video_processing_service.go](../internal/services/video_processing_service.go)
 
 ---
 
@@ -249,7 +250,7 @@ Khi completed, repository set:
 Client query `GET /videos/:id/status` nhận:
 
 - `status`, `stage`, `progress_percent`, `uploaded_at`, `processed_at`… từ bảng `videos`: [server/internal/services/video_service.go](../internal/services/video_service.go#L115-L132)
-- Nếu `status=completed` thì trả thêm `verdict` summary từ `final_verdicts`: [server/internal/services/video_service.go](../internal/services/video_service.go#L134-L149)
+- Nếu `status=completed` thì trả thêm `verdict` và `violation_segments` (khoảng thời gian vi phạm): [server/internal/services/video_service.go](../internal/services/video_service.go)
 
 ---
 
@@ -280,4 +281,4 @@ flowchart LR
 ## 12) Ghi chú hành vi quan trọng (để đọc status đúng)
 
 - Stage có thể “nhảy” giữa `frame_extraction` và `audio_extraction` trong lúc 2 goroutine chạy song song; stage cuối cùng trong DB phụ thuộc goroutine nào update sau (tạm thời). Sau đó sẽ được set sang `video_analysis` / `audio_analysis` / `aggregation` theo thứ tự orchestrator/processor: [server/internal/services/video_processor.go](../internal/services/video_processor.go#L80-L128)
-- Audio extraction fail không làm fail toàn job; status vẫn có thể đi tới `completed` nhưng sẽ không có `audio_analysis` và `audio_results`: [server/internal/services/video_processor.go](../internal/services/video_processor.go#L95-L128)
+- Audio extraction fail không làm fail toàn job; status vẫn có thể `completed` nhưng thiếu segment audio / transcript: [server/internal/services/video_processor.go](../internal/services/video_processor.go)

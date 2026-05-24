@@ -7,10 +7,12 @@ import (
 	"github.com/google/uuid"
 	"github.com/pnhatthanh/vidio-guard-be/internal/apperror"
 	"github.com/pnhatthanh/vidio-guard-be/internal/services"
+	"github.com/pnhatthanh/vidio-guard-be/internal/utils"
 )
 
 type VideoHandler interface {
 	Upload() gin.HandlerFunc
+	List() gin.HandlerFunc
 	GetStatus() gin.HandlerFunc
 }
 
@@ -24,7 +26,7 @@ func NewVideoHandler(videos services.VideoService) VideoHandler {
 
 func (h *videoHandler) Upload() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		userID, err := userIDFromContext(c)
+		userID, err := utils.GetCurrentUserID(c)
 		if err != nil {
 			c.Error(err)
 			return
@@ -60,9 +62,28 @@ func (h *videoHandler) Upload() gin.HandlerFunc {
 	}
 }
 
+func (h *videoHandler) List() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userID, err := utils.GetCurrentUserID(c)
+		if err != nil {
+			c.Error(err)
+			return
+		}
+
+		q := utils.ParseListVideosQuery(c)
+		res, err := h.videos.List(c.Request.Context(), userID, q)
+		if err != nil {
+			c.Error(err)
+			return
+		}
+
+		c.JSON(http.StatusOK, res)
+	}
+}
+
 func (h *videoHandler) GetStatus() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		userID, err := userIDFromContext(c)
+		userID, err := utils.GetCurrentUserID(c)
 		if err != nil {
 			c.Error(err)
 			return
@@ -82,16 +103,4 @@ func (h *videoHandler) GetStatus() gin.HandlerFunc {
 
 		c.JSON(http.StatusOK, res)
 	}
-}
-
-func userIDFromContext(c *gin.Context) (uuid.UUID, error) {
-	raw, ok := c.Get("userID")
-	if !ok {
-		return uuid.Nil, apperror.NewUnauthorizedError("authentication required")
-	}
-	userID, ok := raw.(uuid.UUID)
-	if !ok || userID == uuid.Nil {
-		return uuid.Nil, apperror.NewUnauthorizedError("authentication required")
-	}
-	return userID, nil
 }

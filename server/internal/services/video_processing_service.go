@@ -10,9 +10,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/pnhatthanh/vidio-guard-be/internal/constants"
 	"github.com/pnhatthanh/vidio-guard-be/internal/dto"
-	"github.com/pnhatthanh/vidio-guard-be/internal/model"
 	"github.com/pnhatthanh/vidio-guard-be/internal/pkg"
 	"github.com/pnhatthanh/vidio-guard-be/internal/repository"
+	"github.com/pnhatthanh/vidio-guard-be/internal/utils"
 )
 
 type VideoProcessingService interface {
@@ -20,35 +20,35 @@ type VideoProcessingService interface {
 }
 
 type videoProcessingService struct {
-	videos    repository.VideoRepository
-	frames    repository.FrameResultRepository
-	audio     repository.AudioResultRepository
-	verdicts  repository.FinalVerdictRepository
-	processor VideoProcessor
-	store     pkg.StoreProvider
-	progress  *VideoProgress
-	tempDir   string
+	videos     repository.VideoRepository
+	verdicts   repository.FinalVerdictRepository
+	violations repository.ViolationSegmentRepository
+	processor  VideoProcessor
+	store      pkg.StoreProvider
+	progress   *VideoProgress
+	scorer     *ModerationScorer
+	tempDir    string
 }
 
 func NewVideoProcessingService(
 	videos repository.VideoRepository,
-	frames repository.FrameResultRepository,
-	audio repository.AudioResultRepository,
 	verdicts repository.FinalVerdictRepository,
+	violations repository.ViolationSegmentRepository,
 	processor VideoProcessor,
 	store pkg.StoreProvider,
 	progress *VideoProgress,
+	scorer *ModerationScorer,
 	tempDir string,
 ) VideoProcessingService {
 	return &videoProcessingService{
-		videos:    videos,
-		frames:    frames,
-		audio:     audio,
-		verdicts:  verdicts,
-		processor: processor,
-		store:     store,
-		progress:  progress,
-		tempDir:   tempDir,
+		videos:     videos,
+		verdicts:   verdicts,
+		violations: violations,
+		processor:  processor,
+		store:      store,
+		progress:   progress,
+		scorer:     scorer,
+		tempDir:    tempDir,
 	}
 }
 
@@ -64,7 +64,7 @@ func (s *videoProcessingService) Process(ctx context.Context, videoID uuid.UUID,
 	}
 	defer cleanup()
 
-	job := model.VideoJob{
+	job := dto.VideoJob{
 		VideoID:   videoID,
 		VideoPath: tmpPath,
 		ObjectKey: objectKey,
@@ -111,6 +111,11 @@ func (s *videoProcessingService) downloadVideo(ctx context.Context, videoID uuid
 		cleanup()
 		return "", nil, fmt.Errorf("download object: %w", err)
 	}
+
+	if dur, err := utils.ProbeDurationSec(tmpPath); err == nil {
+		_ = s.videos.UpdateDuration(ctx, videoID, dur)
+	}
+
 	return tmpPath, cleanup, nil
 }
 
@@ -119,28 +124,27 @@ func (s *videoProcessingService) persistResults(ctx context.Context, videoID uui
 		return nil
 	}
 
-	_ = s.frames.DeleteByVideoID(ctx, videoID)
-	_ = s.audio.DeleteByVideoID(ctx, videoID)
 	_ = s.verdicts.DeleteByVideoID(ctx, videoID)
+	_ = s.violations.DeleteByVideoID(ctx, videoID)
 
-	frameRows := mapFrameResults(videoID, output.FramesDir, output.Frames)
-	if err := s.frames.CreateBatch(ctx, frameRows); err != nil {
-		return fmt.Errorf("save frame results: %w", err)
+	durationSec := 0.0
+	if video, err := s.videos.FindByID(ctx, videoID); err == nil && video.DurationSeconds != nil {
+		durationSec = float64(*video.DurationSeconds)
 	}
 
-	if row := mapAudioResult(videoID, output.Audio); row != nil {
-		if err := s.audio.Create(ctx, row); err != nil {
-			return fmt.Errorf("save audio result: %w", err)
-		}
-	}
-
-	verdict := buildFinalVerdict(videoID, output.Frames, output.Audio)
+	verdict := buildFinalVerdict(videoID, output.Frames, output.Audio, durationSec, s.scorer)
 	if err := s.verdicts.Create(ctx, verdict); err != nil {
 		return fmt.Errorf("save final verdict: %w", err)
 	}
 
-	log.Printf("[processing] video=%s verdict=%s risk=%.4f frames=%d",
-		videoID, verdict.Verdict, verdict.RiskScore, len(frameRows))
+	segments := buildViolationSegments(videoID, output.Frames, output.Audio)
+	if err := s.violations.CreateBatch(ctx, segments); err != nil {
+		return fmt.Errorf("save violation segments: %w", err)
+	}
+
+	log.Printf("[processing] video=%s verdict=%s final=%.4f frame=%.4f audio=%.4f violations=%d hard_rule=%v",
+		videoID, verdict.Verdict, verdict.FinalScore, verdict.FrameScore, verdict.AudioScore,
+		len(segments), verdict.HardRuleTriggered)
 
 	return nil
 }
