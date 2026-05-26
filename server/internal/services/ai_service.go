@@ -29,10 +29,14 @@ type aiModerator struct {
 }
 
 func NewAIModerator(cfg config.AIServiceConfig) AIModerator {
+	timeout := cfg.AudioTaskTimeout
+	if timeout <= 0 {
+		timeout = 10 * time.Minute
+	}
 	return &aiModerator{
 		cfg: cfg,
 		client: &http.Client{
-			Timeout: 3 * time.Minute,
+			Timeout: timeout,
 		},
 	}
 }

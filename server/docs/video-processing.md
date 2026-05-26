@@ -60,9 +60,14 @@ Cơ chế tính progress:
 ### 3.1 Route
 
 - Upload: `POST /api/v1/videos/upload`
+- Danh sách: `GET /api/v1/videos`
 - Lấy trạng thái: `GET /api/v1/videos/:id/status`
+- Tải file: `GET /api/v1/videos/:id/download` (presigned URL, `Content-Disposition: attachment`)
+- Xóa: `DELETE /api/v1/videos/:id` (MinIO object + DB, cascade verdict/segments)
 
-Dẫn chứng: [server/internal/app/server_route.go](../internal/app/server_route.go#L15-L19)
+Chi tiết request/response: [docs/API_REFERENCE.md](../../docs/API_REFERENCE.md).
+
+Dẫn chứng: [server/internal/app/server_route.go](../internal/app/server_route.go)
 
 ### 3.2 Handler
 
@@ -160,9 +165,11 @@ Nếu frame extraction lỗi → fail toàn pipeline:
 
 ### 7.3 Tách audio (ffmpeg)
 
-Audio được xuất ra `audio.wav` với:
+Audio được xuất ra `audio.wav` cho faster-whisper:
 
-- `-vn -ac 1 -ar 16000 -acodec pcm_s16le`: [server/internal/services/video_processor.go](../internal/services/video_processor.go#L64-L70)
+- **Mono 16 kHz PCM s16le** — `pan=mono`, `aresample=16000:resampler=swr`
+- `-fflags +genpts`, `-map 0:a:0?`: [server/internal/services/video_processor.go](../internal/services/video_processor.go)
+- `video-api` chờ `image-moderation` **healthy** (model TensorFlow load xong, ~30–60s) trước khi nhận job: [docker-compose.yml](../../docker-compose.yml)
 
 Nếu audio extraction lỗi → chỉ log, không fail job (pipeline vẫn tiếp tục):
 

@@ -2,6 +2,7 @@ package services
 
 import (
 	"strings"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/pnhatthanh/vidio-guard-be/internal/constants"
@@ -177,10 +178,14 @@ func categoryPriority(category constants.ViolationCategory) int {
 
 func truncateEvidence(text string) string {
 	t := strings.TrimSpace(text)
-	if len(t) <= maxEvidenceLen {
+	if !utf8.ValidString(t) {
+		t = strings.ToValidUTF8(t, "")
+	}
+	runes := []rune(t)
+	if len(runes) <= maxEvidenceLen {
 		return t
 	}
-	return t[:maxEvidenceLen-3] + "..."
+	return string(runes[:maxEvidenceLen-3]) + "..."
 }
 
 func mapViolationSegmentsToDTO(rows []model.ViolationSegment) []dto.ViolationSegmentSummary {

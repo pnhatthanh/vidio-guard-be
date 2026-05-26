@@ -33,6 +33,8 @@ type VideoService interface {
 	Upload(ctx context.Context, userID uuid.UUID, reader io.Reader, size int64, filename, contentType string) (*dto.UploadVideoResponse, error)
 	List(ctx context.Context, userID uuid.UUID, q dto.ListVideosQuery) (*dto.VideoListResponse, error)
 	GetStatus(ctx context.Context, userID, videoID uuid.UUID) (*dto.VideoStatusResponse, error)
+	GetDownloadURL(ctx context.Context, userID, videoID uuid.UUID) (*dto.VideoDownloadResponse, error)
+	Delete(ctx context.Context, userID, videoID uuid.UUID) error
 }
 
 type videoService struct {
@@ -69,7 +71,7 @@ func (s *videoService) presignedVideoURL(ctx context.Context, objectKey string) 
 	if objectKey == "" {
 		return ""
 	}
-	url, err := s.store.PresignedGetURL(ctx, objectKey, s.presignTTL)
+	url, err := s.store.PresignedGetURL(ctx, objectKey, s.presignTTL, &pkg.PresignOptions{Disposition: pkg.PresignInline})
 	if err != nil {
 		log.Printf("[video] presign object=%s: %v", objectKey, err)
 		return ""
@@ -185,6 +187,56 @@ func (s *videoService) GetStatus(ctx context.Context, userID, videoID uuid.UUID)
 	}
 
 	return res, nil
+}
+
+func (s *videoService) GetDownloadURL(ctx context.Context, userID, videoID uuid.UUID) (*dto.VideoDownloadResponse, error) {
+	video, err := s.videos.FindByIDAndUser(ctx, videoID, userID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, apperror.NewNotFoundError("video not found")
+		}
+		return nil, apperror.NewInternalServerError("failed to load video")
+	}
+
+	downloadURL, err := s.store.PresignedGetURL(ctx, video.VideoURL, s.presignTTL, &pkg.PresignOptions{
+		Disposition: pkg.PresignAttachment,
+		Filename:    video.OriginalFilename,
+	})
+	if err != nil {
+		return nil, apperror.NewInternalServerError("failed to generate download url")
+	}
+
+	return &dto.VideoDownloadResponse{
+		VideoID:          video.ID.String(),
+		DownloadURL:      downloadURL,
+		Filename:         video.OriginalFilename,
+		ExpiresInSeconds: int(s.presignTTL.Seconds()),
+	}, nil
+}
+
+func (s *videoService) Delete(ctx context.Context, userID, videoID uuid.UUID) error {
+	if userID == uuid.Nil {
+		return apperror.NewUnauthorizedError("authentication required")
+	}
+
+	video, err := s.videos.FindByIDAndUser(ctx, videoID, userID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return apperror.NewNotFoundError("video not found")
+		}
+		return apperror.NewInternalServerError("failed to load video")
+	}
+
+	if video.VideoURL != "" {
+		if err := s.store.Remove(ctx, video.VideoURL); err != nil {
+			log.Printf("[video] delete object=%s: %v", video.VideoURL, err)
+		}
+	}
+
+	if err := s.videos.DeleteByIDAndUser(ctx, videoID, userID); err != nil {
+		return apperror.NewInternalServerError("failed to delete video")
+	}
+	return nil
 }
 
 func (s *videoService) List(ctx context.Context, userID uuid.UUID, q dto.ListVideosQuery) (*dto.VideoListResponse, error) {

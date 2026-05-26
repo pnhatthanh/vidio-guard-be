@@ -2,7 +2,7 @@
 FastAPI application factory with lifespan model loading.
 
 Startup order:
-  1. Load Faster-Whisper (CPU/GPU auto-detect)
+  1. Load faster-whisper (OpenAI Whisper CT2, CPU/GPU auto-detect)
   2. Load PhoBERT tokenizer + model
 
 Both models are singletons — loaded once and reused for all requests.
@@ -42,9 +42,9 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="VideoGuard Audio Moderation Service",
         description=(
-            "Faster-Whisper + PhoBERT audio moderation pipeline. "
-            "Transcribes Vietnamese audio and classifies each segment as "
-            "**Clean**, **Offensive**, or **Hate**."
+            "faster-whisper + PhoBERT audio moderation. "
+            "Transcribes audio and classifies each segment as "
+            "**Clean** or **Toxic**."
         ),
         version="1.0.0",
         lifespan=lifespan,

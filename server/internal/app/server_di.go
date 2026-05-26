@@ -115,8 +115,9 @@ func buildServer(cfg *config.Config, c *container) (*Server, error) {
 	violationRepo := repository.NewViolationSegmentRepository(gdb)
 
 	tokenSvc := services.NewTokenService(&cfg.JWT, c.cache)
-	authSvc := services.NewAuthService(userRepo, tokenRepo, tokenSvc, &cfg.Google, &cfg.JWT)
-	userSvc := services.NewUserService(userRepo)
+	mailer := pkg.NewMailer(cfg.SMTP)
+	authSvc := services.NewAuthService(userRepo, tokenRepo, tokenSvc, c.cache, mailer, &cfg.Google, &cfg.JWT, cfg.PasswordReset)
+	userSvc := services.NewUserService(userRepo, c.store, cfg.Minio.PresignURLTTL)
 	videoSvc := services.NewVideoService(videoRepo, verdictRepo, violationRepo, c.enqueuer, c.store, cfg.Minio.PresignURLTTL)
 
 	authHandler := handlers.NewAuthHandler(authSvc)

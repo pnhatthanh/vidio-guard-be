@@ -14,6 +14,8 @@ type VideoHandler interface {
 	Upload() gin.HandlerFunc
 	List() gin.HandlerFunc
 	GetStatus() gin.HandlerFunc
+	GetDownload() gin.HandlerFunc
+	Delete() gin.HandlerFunc
 }
 
 type videoHandler struct {
@@ -102,5 +104,52 @@ func (h *videoHandler) GetStatus() gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusOK, res)
+	}
+}
+
+func (h *videoHandler) GetDownload() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userID, err := utils.GetCurrentUserID(c)
+		if err != nil {
+			c.Error(err)
+			return
+		}
+
+		videoID, err := uuid.Parse(c.Param("id"))
+		if err != nil {
+			c.Error(apperror.NewBadRequestError("invalid video id"))
+			return
+		}
+
+		res, err := h.videos.GetDownloadURL(c.Request.Context(), userID, videoID)
+		if err != nil {
+			c.Error(err)
+			return
+		}
+
+		c.JSON(http.StatusOK, res)
+	}
+}
+
+func (h *videoHandler) Delete() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		userID, err := utils.GetCurrentUserID(c)
+		if err != nil {
+			c.Error(err)
+			return
+		}
+
+		videoID, err := uuid.Parse(c.Param("id"))
+		if err != nil {
+			c.Error(apperror.NewBadRequestError("invalid video id"))
+			return
+		}
+
+		if err := h.videos.Delete(c.Request.Context(), userID, videoID); err != nil {
+			c.Error(err)
+			return
+		}
+
+		c.Status(http.StatusNoContent)
 	}
 }

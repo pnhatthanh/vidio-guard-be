@@ -17,6 +17,8 @@ type AuthHandler interface {
 	LoginWithGoogle() gin.HandlerFunc
 	RefreshToken() gin.HandlerFunc
 	Logout() gin.HandlerFunc
+	ForgotPassword() gin.HandlerFunc
+	ResetPassword() gin.HandlerFunc
 }
 
 type authHandler struct {
@@ -130,5 +132,39 @@ func (h *authHandler) Logout() gin.HandlerFunc {
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"message": "logged out"})
+	}
+}
+
+func (h *authHandler) ForgotPassword() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req dto.ForgotPasswordRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.Error(apperror.NewBadRequestError(err.Error()))
+			return
+		}
+
+		res, err := h.auth.ForgotPassword(c.Request.Context(), req)
+		if err != nil {
+			c.Error(err)
+			return
+		}
+		c.JSON(http.StatusOK, res)
+	}
+}
+
+func (h *authHandler) ResetPassword() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req dto.ResetPasswordRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.Error(apperror.NewBadRequestError(err.Error()))
+			return
+		}
+
+		res, err := h.auth.ResetPassword(c.Request.Context(), req)
+		if err != nil {
+			c.Error(err)
+			return
+		}
+		c.JSON(http.StatusOK, res)
 	}
 }

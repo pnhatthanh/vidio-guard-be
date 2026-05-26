@@ -1,34 +1,24 @@
 """
-API router — POST /audio/predict
-
-Accepts a WAV/MP3 audio file upload, runs:
-  1. Faster-Whisper  → list of Vietnamese sentence segments
-  2. PhoBERT         → per-sentence label (Clean / Offensive / Hate)
-
-Returns an AudioPredictResponse with per-sentence details + overall verdict.
+POST /audio/predict — faster-whisper ASR + PhoBERT.
 """
 import logging
 import os
 import tempfile
 
-from fastapi import APIRouter, File, UploadFile, HTTPException
+from fastapi import APIRouter, File, HTTPException, UploadFile
 
-from app.transcriber import transcribe_audio
 from app import model as phobert
+from app.model import FLAGGED_LABELS
 from app.schemas import AudioPredictResponse, SentencePrediction
+from app.transcriber import transcribe_audio
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/audio", tags=["predict"])
 
-# Labels that count as flagged content
-_FLAGGED_LABELS = {"Offensive", "Hate"}
-
-# Worst-case priority for overall_label
-_LABEL_PRIORITY = {"Hate": 2, "Offensive": 1, "Clean": 0}
+_LABEL_PRIORITY = {"Toxic": 1, "Clean": 0}
 
 
 def _overall_label(sentences: list[SentencePrediction]) -> str:
-    """Return the worst label seen across all sentences."""
     worst = "Clean"
     for s in sentences:
         if _LABEL_PRIORITY.get(s.label, 0) > _LABEL_PRIORITY.get(worst, 0):
@@ -41,16 +31,13 @@ def _overall_label(sentences: list[SentencePrediction]) -> str:
     response_model=AudioPredictResponse,
     summary="Transcribe audio and classify each sentence",
     description=(
-        "Upload a WAV/MP3 audio file. "
-        "Faster-Whisper transcribes it into segments; "
-        "each segment is classified by PhoBERT as **Clean**, **Offensive**, or **Hate**."
+        "Upload WAV 16 kHz mono (from video-api). "
+        "faster-whisper ASR + PhoBERT **Clean** / **Toxic** per segment."
     ),
 )
 async def predict_audio(
-    file: UploadFile = File(..., description="Audio file (WAV / MP3, 16 kHz mono recommended)"),
+    file: UploadFile = File(..., description="Audio file (WAV 16 kHz mono from video-api)"),
 ) -> AudioPredictResponse:
-
-    # ── 1. Save upload to a temp file ─────────────────────────────────────────
     suffix = os.path.splitext(file.filename or "audio.wav")[1] or ".wav"
     try:
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
@@ -61,12 +48,11 @@ async def predict_audio(
         raise HTTPException(status_code=500, detail=f"Could not save audio file: {exc}")
 
     try:
-        # ── 2. Transcribe ──────────────────────────────────────────────────────
-        logger.info("[audio_predict] Transcribing uploaded file: %s", file.filename)
+        logger.info("[audio_predict] Transcribing: %s", file.filename)
         segments = transcribe_audio(tmp_path)
 
         if not segments:
-            logger.warning("[audio_predict] No speech detected in audio file")
+            logger.warning("[audio_predict] No speech detected")
             return AudioPredictResponse(
                 total_sentences=0,
                 flagged_count=0,
@@ -74,12 +60,10 @@ async def predict_audio(
                 sentences=[],
             )
 
-        # ── 3. PhoBERT inference ───────────────────────────────────────────────
         texts = [s.text for s in segments]
-        logger.info("[audio_predict] Running PhoBERT on %d sentence(s)", len(texts))
+        logger.info("[audio_predict] PhoBERT on %d segment(s)", len(texts))
         preds = phobert.predict(texts)
 
-        # ── 4. Assemble response ───────────────────────────────────────────────
         sentence_results: list[SentencePrediction] = [
             SentencePrediction(
                 text=seg.text,
@@ -90,11 +74,11 @@ async def predict_audio(
             for seg, pred in zip(segments, preds)
         ]
 
-        flagged = sum(1 for s in sentence_results if s.label in _FLAGGED_LABELS)
+        flagged = sum(1 for s in sentence_results if s.label in FLAGGED_LABELS)
         verdict = _overall_label(sentence_results)
 
         logger.info(
-            "[audio_predict] Done — sentences=%d  flagged=%d  verdict=%s",
+            "[audio_predict] Done — sentences=%d flagged=%d verdict=%s",
             len(sentence_results),
             flagged,
             verdict,
@@ -108,7 +92,6 @@ async def predict_audio(
         )
 
     finally:
-        # Always clean up the temp file
         try:
             os.unlink(tmp_path)
         except OSError:

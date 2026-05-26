@@ -6,7 +6,7 @@ python-multipart==0.0.18        # required for UploadFile / multipart
 # ── Settings ──────────────────────────────────────────────────────────────────
 pydantic-settings==2.6.1
 
-# ── ASR — Faster-Whisper ──────────────────────────────────────────────────────
+# ── ASR — faster-whisper (OpenAI Whisper CT2, auto-download) ─────────────────
 faster-whisper==1.1.1
 
 # ── Text classification — PhoBERT ─────────────────────────────────────────────

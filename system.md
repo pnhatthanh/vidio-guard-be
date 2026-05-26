@@ -337,16 +337,19 @@ graph TB
 
 ### REST Endpoints
 
+> Danh sách đầy đủ và ví dụ request/response: **[docs/API_REFERENCE.md](docs/API_REFERENCE.md)**.
+
 | Method | Endpoint | Mô tả |
 |--------|----------|-------|
-| `POST` | `/api/v1/videos/upload` | Upload video mới |
+| `POST` | `/api/v1/auth/*` | Đăng ký, đăng nhập, refresh, logout |
+| `GET` / `PATCH` | `/api/v1/users/me` | Profile / cập nhật (multipart avatar) |
+| `PATCH` | `/api/v1/users/me/password` | Đổi mật khẩu |
 | `GET` | `/api/v1/videos` | Danh sách video của user |
-| `GET` | `/api/v1/videos/:id` | Chi tiết + trạng thái |
-| `GET` | `/api/v1/videos/:id/result` | Báo cáo kiểm duyệt đầy đủ |
-| `GET` | `/api/v1/videos/:id/frames` | Danh sách frame results |
+| `POST` | `/api/v1/videos/upload` | Upload video mới |
+| `GET` | `/api/v1/videos/:id/status` | Trạng thái + kết quả moderation |
+| `GET` | `/api/v1/videos/:id/download` | Presigned URL tải file |
 | `DELETE` | `/api/v1/videos/:id` | Xóa video |
-| `WS` | `/ws/videos/:id` | WebSocket real-time progress |
-| `GET` | `/api/v1/health` | Health check |
+| `WS` | `/api/v1/ws/pipeline` | WebSocket tiến độ pipeline (JWT) |
 
 <!-- ### WebSocket Message Format
 

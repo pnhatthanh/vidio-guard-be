@@ -28,3 +28,18 @@ type AuthResponse struct {
 	AccessToken  string  `json:"access_token"`
 	RefreshToken string  `json:"refresh_token"`
 }
+
+type ForgotPasswordRequest struct {
+	Email string `json:"email" binding:"required,email"`
+}
+
+type ResetPasswordRequest struct {
+	Email              string `json:"email" binding:"required,email"`
+	OTP                string `json:"otp" binding:"required,len=6,numeric"`
+	NewPassword        string `json:"new_password" binding:"required,min=8"`
+	ConfirmNewPassword string `json:"confirm_new_password" binding:"required,eqfield=NewPassword"`
+}
+
+type MessageResponse struct {
+	Message string `json:"message"`
+}

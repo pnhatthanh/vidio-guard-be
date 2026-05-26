@@ -16,6 +16,7 @@ import (
 	"github.com/pnhatthanh/vidio-guard-be/internal/config"
 	"github.com/pnhatthanh/vidio-guard-be/internal/dto"
 	"github.com/pnhatthanh/vidio-guard-be/internal/model"
+	"github.com/pnhatthanh/vidio-guard-be/internal/pkg"
 	"github.com/pnhatthanh/vidio-guard-be/internal/repository"
 	"github.com/pnhatthanh/vidio-guard-be/internal/utils"
 	"gorm.io/gorm"
@@ -27,14 +28,19 @@ type AuthService interface {
 	LoginWithGoogle(ctx context.Context, idToken string) (*dto.AuthResponse, error)
 	RefreshToken(ctx context.Context, rawToken string) (*dto.AuthResponse, error)
 	Logout(ctx context.Context, jti string, userID uuid.UUID, expiresAt time.Time, rawRefreshToken string) error
+	ForgotPassword(ctx context.Context, req dto.ForgotPasswordRequest) (*dto.MessageResponse, error)
+	ResetPassword(ctx context.Context, req dto.ResetPasswordRequest) (*dto.MessageResponse, error)
 }
 
 type authService struct {
 	users      repository.UserRepository
 	tokens     repository.TokenRepository
 	jwt        TokenService
+	cache      pkg.CacheProvider
+	mailer     pkg.Mailer
 	google     *config.GoogleConfig
 	jwtCfg     *config.JWTConfig
+	pwdReset   config.PasswordResetConfig
 	httpClient *http.Client
 }
 
@@ -42,21 +48,27 @@ func NewAuthService(
 	users repository.UserRepository,
 	tokens repository.TokenRepository,
 	jwt TokenService,
+	cache pkg.CacheProvider,
+	mailer pkg.Mailer,
 	googleCfg *config.GoogleConfig,
 	jwtCfg *config.JWTConfig,
+	pwdResetCfg config.PasswordResetConfig,
 ) AuthService {
 	return &authService{
 		users:      users,
 		tokens:     tokens,
 		jwt:        jwt,
+		cache:      cache,
+		mailer:     mailer,
 		google:     googleCfg,
 		jwtCfg:     jwtCfg,
+		pwdReset:   pwdResetCfg,
 		httpClient: &http.Client{Timeout: 5 * time.Second},
 	}
 }
 
 func (s *authService) Register(ctx context.Context, req dto.RegisterRequest) (*dto.UserDTO, error) {
-	email := normalizeEmail(req.Email)
+	email := utils.NormalizeEmail(req.Email)
 	fullName := strings.TrimSpace(req.FullName)
 
 	if _, err := s.users.FindByEmail(ctx, email); err == nil {
@@ -83,7 +95,7 @@ func (s *authService) Register(ctx context.Context, req dto.RegisterRequest) (*d
 }
 
 func (s *authService) Login(ctx context.Context, req dto.LoginRequest) (*dto.AuthResponse, error) {
-	email := normalizeEmail(req.Email)
+	email := utils.NormalizeEmail(req.Email)
 
 	user, err := s.users.FindByEmail(ctx, email)
 	if err != nil {
@@ -110,6 +122,9 @@ func (s *authService) LoginWithGoogle(ctx context.Context, idToken string) (*dto
 	}
 
 	if user, err := s.users.FindByGoogleID(ctx, info.Sub); err == nil {
+		if err := s.syncGoogleAvatarIfEmpty(ctx, user, info.Picture); err != nil {
+			return nil, apperror.NewInternalServerError("failed to update profile")
+		}
 		return s.issueTokens(ctx, user)
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, apperror.NewInternalServerError("failed to find user")
@@ -122,6 +137,9 @@ func (s *authService) LoginWithGoogle(ctx context.Context, idToken string) (*dto
 			}
 			user.GoogleID = &info.Sub
 		}
+		if err := s.syncGoogleAvatarIfEmpty(ctx, user, info.Picture); err != nil {
+			return nil, apperror.NewInternalServerError("failed to update profile")
+		}
 		return s.issueTokens(ctx, user)
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, apperror.NewInternalServerError("failed to find user")
@@ -132,6 +150,9 @@ func (s *authService) LoginWithGoogle(ctx context.Context, idToken string) (*dto
 		Email:    info.Email,
 		GoogleID: &info.Sub,
 	}
+	if pic := strings.TrimSpace(info.Picture); pic != "" {
+		user.AvatarURL = &pic
+	}
 	if err := s.users.Create(ctx, user); err != nil {
 		existing, err := s.users.FindByEmail(ctx, info.Email)
 		if err != nil {
@@ -140,6 +161,9 @@ func (s *authService) LoginWithGoogle(ctx context.Context, idToken string) (*dto
 		if existing.GoogleID == nil || *existing.GoogleID == "" {
 			_ = s.users.UpdateGoogleID(ctx, existing.ID, info.Sub)
 			existing.GoogleID = &info.Sub
+		}
+		if err := s.syncGoogleAvatarIfEmpty(ctx, existing, info.Picture); err != nil {
+			return nil, apperror.NewInternalServerError("failed to update profile")
 		}
 		return s.issueTokens(ctx, existing)
 	}
@@ -244,10 +268,11 @@ func (s *authService) issueTokens(ctx context.Context, user *model.User) (*dto.A
 }
 
 type googleTokenInfo struct {
-	Aud   string `json:"aud"`
-	Sub   string `json:"sub"`
-	Email string `json:"email"`
-	Name  string `json:"name"`
+	Aud     string `json:"aud"`
+	Sub     string `json:"sub"`
+	Email   string `json:"email"`
+	Name    string `json:"name"`
+	Picture string `json:"picture"`
 }
 
 func (s *authService) verifyGoogleIDToken(ctx context.Context, idToken string) (*googleTokenInfo, error) {
@@ -280,7 +305,7 @@ func (s *authService) verifyGoogleIDToken(ctx context.Context, idToken string) (
 		return nil, err
 	}
 
-	info.Email = normalizeEmail(info.Email)
+	info.Email = utils.NormalizeEmail(info.Email)
 	if info.Sub == "" || info.Email == "" {
 		return nil, errors.New("missing sub or email")
 	}
@@ -291,16 +316,24 @@ func (s *authService) verifyGoogleIDToken(ctx context.Context, idToken string) (
 	return &info, nil
 }
 
-func normalizeEmail(email string) string {
-	return strings.TrimSpace(strings.ToLower(email))
-}
-
 func defaultGoogleName(name string) string {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return "Google User"
 	}
 	return name
+}
+
+func (s *authService) syncGoogleAvatarIfEmpty(ctx context.Context, user *model.User, picture string) error {
+	picture = strings.TrimSpace(picture)
+	if picture == "" || user == nil {
+		return nil
+	}
+	if user.AvatarURL != nil && strings.TrimSpace(*user.AvatarURL) != "" {
+		return nil
+	}
+	user.AvatarURL = &picture
+	return s.users.Update(ctx, user)
 }
 
 func sha256Hex(raw string) string {

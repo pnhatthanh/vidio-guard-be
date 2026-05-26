@@ -11,6 +11,9 @@ type CacheProvider interface {
 	Set(key string, value interface{}, ttl time.Duration) error
 	Get(key string) (string, error)
 	IsExist(key string) (bool, error)
+	Delete(key string) error
+	Incr(key string) (int64, error)
+	Expire(key string, ttl time.Duration) error
 }
 
 type redisCache struct {
@@ -52,4 +55,22 @@ func (r *redisCache) IsExist(key string) (bool, error) {
 		return false, err
 	}
 	return count > 0, nil
+}
+
+func (r *redisCache) Delete(key string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	return r.client.Del(ctx, key).Err()
+}
+
+func (r *redisCache) Incr(key string) (int64, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	return r.client.Incr(ctx, key).Result()
+}
+
+func (r *redisCache) Expire(key string, ttl time.Duration) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	return r.client.Expire(ctx, key, ttl).Err()
 }

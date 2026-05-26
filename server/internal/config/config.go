@@ -5,6 +5,7 @@ import (
 	"os"
 	"runtime"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -55,6 +56,23 @@ type GoogleConfig struct {
 	ClientID string
 }
 
+type SMTPConfig struct {
+	Host     string
+	Port     int
+	User     string
+	Password string
+	From     string
+	UseTLS   bool
+}
+
+type PasswordResetConfig struct {
+	ResetPageURL string // FE page, e.g. https://app.example.com/reset-password
+	OTPTTL       time.Duration
+	CooldownTTL  time.Duration
+	MaxAttempts  int
+	AttemptsTTL  time.Duration
+}
+
 type AIServiceConfig struct {
 	FrameModeratorUrl string
 	NSFWThreshold     float64
@@ -62,6 +80,7 @@ type AIServiceConfig struct {
 	ChunkSize         int
 	EarlyExitCount    int
 	AudioModeratorUrl string
+	AudioTaskTimeout  time.Duration
 }
 
 // ModerationConfig controls risk scoring, fusion weights, and hard rules.
@@ -92,8 +111,10 @@ type Config struct {
 	Redis     RedisConfig
 	Asynq     AsynqConfig
 	Status    StatusConfig
-	AIService   AIServiceConfig
-	Moderation  ModerationConfig
+	AIService      AIServiceConfig
+	Moderation     ModerationConfig
+	SMTP           SMTPConfig
+	PasswordReset  PasswordResetConfig
 }
 
 func Load() (*Config, error) {
@@ -151,7 +172,8 @@ func Load() (*Config, error) {
 			ViolenceThreshold: getenvFloat("AI_VIOLENCE_THRESHOLD", 0.6),
 			ChunkSize:         getenvInt("AI_CHUNK_SIZE", 32),
 			EarlyExitCount:    getenvInt("AI_EARLY_EXIT_COUNT", 3),
-			AudioModeratorUrl: getenv("AI_AUDIO_MODERATOR_URL", "http://audio-moderation:8000"),
+			AudioModeratorUrl: getenv("AI_AUDIO_MODERATOR_URL", "http://audio-moderation:8001"),
+			AudioTaskTimeout:  getenvDuration("AI_AUDIO_TASK_TIMEOUT", 20*time.Minute),
 		},
 		Moderation: ModerationConfig{
 			FrameWeight:        getenvFloat("MOD_FRAME_WEIGHT", 0.7),
@@ -166,6 +188,21 @@ func Load() (*Config, error) {
 			HardToxicCoverageRatio: getenvFloat("MOD_HARD_TOXIC_COVERAGE", 0.15),
 			HardToxicSegmentCount:  getenvInt("MOD_HARD_TOXIC_SEGMENTS", 8),
 			HardToxicTotalSec:      getenvFloat("MOD_HARD_TOXIC_TOTAL_SEC", 45),
+		},
+		SMTP: SMTPConfig{
+			Host:     strings.TrimSpace(getenv("SMTP_HOST", "")),
+			Port:     getenvInt("SMTP_PORT", 587),
+			User:     getenv("SMTP_USER", ""),
+			Password: getenv("SMTP_PASSWORD", ""),
+			From:     strings.TrimSpace(getenv("SMTP_FROM", "")),
+			UseTLS:   getenvBool("SMTP_USE_TLS", true),
+		},
+		PasswordReset: PasswordResetConfig{
+			ResetPageURL: strings.TrimRight(strings.TrimSpace(getenv("PWD_RESET_PAGE_URL", "http://localhost:3000/reset-password")), "/"),
+			OTPTTL:       getenvDuration("PWD_RESET_OTP_TTL", 15*time.Minute),
+			CooldownTTL:  getenvDuration("PWD_RESET_COOLDOWN", 60*time.Second),
+			MaxAttempts:  getenvInt("PWD_RESET_MAX_ATTEMPTS", 5),
+			AttemptsTTL:  getenvDuration("PWD_RESET_ATTEMPTS_TTL", 30*time.Minute),
 		},
 	}
 

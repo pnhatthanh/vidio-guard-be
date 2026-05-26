@@ -1,16 +1,27 @@
 """
-Configuration management via environment variables.
+Configuration via environment variables (prefix AUDIO_).
 """
 from functools import lru_cache
+
 from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    # ── Whisper ──────────────────────────────────────────────────────────────
-    whisper_model_size: str = "medium"   # tiny | base | small | medium | large
+    # ── faster-whisper (OpenAI Whisper CT2) ───────────────────────────────────
+    whisper_model_size: str = "large-v3"
+    whisper_language: str = "vi"
+    whisper_compute_type: str = "auto"
+    whisper_initial_prompt: str = ""
+    whisper_beam_size: int = 5
+    whisper_cpu_threads: int = 4
+    whisper_num_workers: int = 1
 
-    # ── PhoBERT ──────────────────────────────────────────────────────────────
-    phobert_model_path: str = "models"   # folder with config.json, model.safetensors, …
+    # ── PhoBERT (CustomPhoBERT binary: Clean / Toxic) ─────────────────────────
+    phobert_model_path: str = "models"
+    phobert_base_model: str = "vinai/phobert-base-v2"
+    phobert_num_labels: int = 2
+    phobert_dropout: float = 0.2
+    phobert_unfreeze_last_n: int = 8
     phobert_max_length: int = 128
     phobert_batch_size: int = 32
 
@@ -19,8 +30,6 @@ class Settings(BaseSettings):
     port: int = 8001
     workers: int = 1
     log_level: str = "info"
-
-    # ── CORS ──────────────────────────────────────────────────────────────────
     cors_origins: list[str] = ["*"]
 
     class Config:

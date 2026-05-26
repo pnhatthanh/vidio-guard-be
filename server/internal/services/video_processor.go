@@ -52,28 +52,21 @@ func (p *ffmpegVideoProcessor) Process(ctx context.Context, job dto.VideoJob, pr
 		framesPattern,
 	}
 
+	// faster-whisper: mono 16 kHz PCM (mix L/R, resample swr — Alpine-safe).
 	audioOut := filepath.Join(audioDir, "audio.wav")
 	audioArgs := []string{
+		"-hide_banner",
+		"-loglevel", "error",
+		"-fflags", "+genpts",
 		"-i", job.VideoPath,
-		// lấy audio stream đầu tiên
-		"-map", "0:a:0",
-
-		// bỏ video
+		"-map", "0:a:0?",
 		"-vn",
-
-		// giữ stereo để preserve detail
-		"-ac", "2",
-
-		"-ar", "48000",
-
-		"-af",
-		"highpass=f=80," +
-			"lowpass=f=12000," +
-			"afftdn=nf=-20," +
-			"loudnorm",
-
-		// WAV PCM 32-bit float
-		"-c:a", "pcm_f32le",
+		"-af", "pan=mono|c0=0.5*c0+0.5*c1,aresample=16000:resampler=swr,aformat=sample_fmts=s16:channel_layouts=mono",
+		"-ar", "16000",
+		"-ac", "1",
+		"-c:a", "pcm_s16le",
+		"-f", "wav",
+		"-y",
 		audioOut,
 	}
 

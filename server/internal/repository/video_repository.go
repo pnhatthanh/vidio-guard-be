@@ -21,6 +21,7 @@ type VideoRepository interface {
 	UpdateDuration(ctx context.Context, id uuid.UUID, durationSec float64) error
 	MarkFailed(ctx context.Context, id uuid.UUID) error
 	MarkCompleted(ctx context.Context, id uuid.UUID) error
+	DeleteByIDAndUser(ctx context.Context, id, userID uuid.UUID) error
 }
 
 type videoRepository struct {
@@ -86,6 +87,11 @@ func (r *videoRepository) MarkCompleted(ctx context.Context, id uuid.UUID) error
 		"processed_at":     &now,
 	}).Error
 }
+
+func (r *videoRepository) DeleteByIDAndUser(ctx context.Context, id, userID uuid.UUID) error {
+	return r.db.WithContext(ctx).Where("id = ? AND user_id = ?", id, userID).Delete(&model.Video{}).Error
+}
+
 func (r *videoRepository) ListByUser(ctx context.Context, p model.VideoListParams) ([]model.VideoListRow, int64, error) {
 	countQ := r.db.WithContext(ctx).
 		Table("videos v").

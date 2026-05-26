@@ -21,8 +21,8 @@ type Video struct {
 	UploadedAt       time.Time             `gorm:"column:uploaded_at;autoCreateTime"`
 	ProcessedAt      *time.Time            `gorm:"column:processed_at"`
 
-	FinalVerdict *FinalVerdict      `gorm:"foreignKey:VideoID;references:ID"`
-	Violations   []ViolationSegment `gorm:"foreignKey:VideoID;references:ID"`
+	FinalVerdict *FinalVerdict      `gorm:"foreignKey:VideoID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE"`
+	Violations   []ViolationSegment `gorm:"foreignKey:VideoID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE"`
 
 }
 

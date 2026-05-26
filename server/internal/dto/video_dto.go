@@ -6,6 +6,13 @@ import (
 	"github.com/pnhatthanh/vidio-guard-be/internal/constants"
 )
 
+type VideoDownloadResponse struct {
+	VideoID          string `json:"video_id"`
+	DownloadURL      string `json:"download_url"`
+	Filename         string `json:"filename"`
+	ExpiresInSeconds int    `json:"expires_in_seconds"`
+}
+
 type UploadVideoResponse struct {
 	VideoID         string                `json:"video_id"`
 	VideoURL        string                `json:"video_url"`

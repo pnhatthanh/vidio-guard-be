@@ -9,6 +9,8 @@ func (s *Server) registerRoutes() {
 			auth.POST("/login", s.authHandler.Login())
 			auth.POST("/google", s.authHandler.LoginWithGoogle())
 			auth.POST("/refresh", s.authHandler.RefreshToken())
+			auth.POST("/forgot-password", s.authHandler.ForgotPassword())
+			auth.POST("/reset-password", s.authHandler.ResetPassword())
 			auth.POST("/logout", s.JWTMiddleware(), s.authHandler.Logout())
 		}
 
@@ -23,7 +25,9 @@ func (s *Server) registerRoutes() {
 		{
 			videos.GET("", s.videoHandler.List())
 			videos.POST("/upload", s.videoHandler.Upload())
+			videos.GET("/:id/download", s.videoHandler.GetDownload())
 			videos.GET("/:id/status", s.videoHandler.GetStatus())
+			videos.DELETE("/:id", s.videoHandler.Delete())
 		}
 
 		wsGroup := v1.Group("/ws")

@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 
+	"github.com/google/uuid"
 	"github.com/pnhatthanh/vidio-guard-be/internal/model"
 	"gorm.io/gorm"
 )
@@ -11,6 +12,7 @@ type TokenRepository interface {
 	Create(ctx context.Context, token *model.RefreshToken) error
 	FindByHash(ctx context.Context, hash string) (*model.RefreshToken, error)
 	DeleteByHash(ctx context.Context, hash string) error
+	DeleteByUserID(ctx context.Context, userID uuid.UUID) error
 }
 
 type tokenRepository struct {
@@ -35,4 +37,8 @@ func (r *tokenRepository) FindByHash(ctx context.Context, hash string) (*model.R
 
 func (r *tokenRepository) DeleteByHash(ctx context.Context, hash string) error {
 	return r.db.WithContext(ctx).Where("token_hash = ?", hash).Delete(&model.RefreshToken{}).Error
+}
+
+func (r *tokenRepository) DeleteByUserID(ctx context.Context, userID uuid.UUID) error {
+	return r.db.WithContext(ctx).Where("user_id = ?", userID).Delete(&model.RefreshToken{}).Error
 }

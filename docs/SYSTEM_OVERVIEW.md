@@ -475,6 +475,31 @@ erDiagram
 
 ---
 
+#### `POST /auth/forgot-password`
+
+Gửi mã OTP 6 số qua email (response generic, không lộ email có tồn tại hay không).
+
+**Body:** `{ "email": "user@example.com" }`
+
+---
+
+#### `POST /auth/reset-password`
+
+**Body:**
+
+```json
+{
+  "email": "user@example.com",
+  "otp": "123456",
+  "new_password": "newpass123",
+  "confirm_new_password": "newpass123"
+}
+```
+
+**Response `200`:** `{ "message": "password reset successfully" }` — thu hồi refresh token cũ.
+
+---
+
 ### 6.3 User — `/api/v1/users` (cần JWT)
 
 #### `GET /users/me`
@@ -488,7 +513,7 @@ Thông tin cá nhân user đang đăng nhập.
   "id": "uuid",
   "full_name": "Nguyen Van A",
   "email": "user@example.com",
-  "avatar_url": "https://...",
+  "avatar_url": "http://localhost:9000/videos/avatars/{user_id}.jpg?X-Amz-Algorithm=...",
   "has_password": true,
   "has_google": false,
   "created_at": "2026-01-15T08:00:00Z"
@@ -497,16 +522,15 @@ Thông tin cá nhân user đang đăng nhập.
 
 #### `PATCH /users/me`
 
-Cập nhật `full_name`, `avatar_url` (gửi `null` hoặc `""` để xóa avatar).
+Cập nhật `full_name` và/hoặc upload ảnh avatar (`multipart/form-data`).
 
-**Body:**
+| Field | Type | Bắt buộc | Mô tả |
+|-------|------|----------|--------|
+| `full_name` | string | yes | ≥ 2 ký tự |
+| `avatar` | file | no | JPEG / PNG / WebP, max 5 MB |
+| `remove_avatar` | string | no | `"true"` để xóa avatar |
 
-```json
-{
-  "full_name": "Nguyen Van A",
-  "avatar_url": "https://cdn.example/avatar.jpg"
-}
-```
+Ảnh lưu MinIO `avatars/{user_id}{ext}`; response `avatar_url` là presigned URL.
 
 **Response `200`:** cùng format `GET /users/me`.
 
@@ -724,6 +748,29 @@ Chỉ trả video của user đang đăng nhập.
 
 ---
 
+#### `GET /videos/:id/download`
+
+Trả presigned URL tải file (`Content-Disposition: attachment`).
+
+**Response `200`:**
+
+```json
+{
+  "video_id": "uuid",
+  "download_url": "http://localhost:9000/videos/{id}.mp4?...",
+  "filename": "clip.mp4",
+  "expires_in_seconds": 3600
+}
+```
+
+---
+
+#### `DELETE /videos/:id`
+
+Xóa object MinIO + bản ghi video (cascade verdict/segments). **Response `204`** (no body).
+
+---
+
 ### 6.5 WebSocket — Active Pipeline realtime
 
 **Endpoint:** `GET /api/v1/ws/pipeline`
@@ -883,6 +930,13 @@ File mẫu: `server/.env`
 |------|----------|
 | `JWT_ACCESS_SECRET` | (đổi khi production) |
 | `JWT_ACCESS_TTL` | `15m` |
+| `SMTP_HOST` | — | Gửi OTP quên mật khẩu (vd Gmail `smtp.gmail.com`) |
+| `SMTP_PORT` | `587` | |
+| `SMTP_USER` / `SMTP_PASSWORD` | — | App password SMTP |
+| `SMTP_FROM` | — | Địa chỉ From (vd `Vigilant Lens <noreply@...>`) |
+| `PWD_RESET_PAGE_URL` | `http://localhost:3000/reset-password` | URL trang FE reset (query `email`, `otp`) |
+| `PWD_RESET_OTP_TTL` | `15m` | TTL mã OTP trên Redis |
+| `PWD_RESET_COOLDOWN` | `60s` | Tối thiểu giữa 2 lần gửi mã / email |
 | `JWT_REFRESH_TTL` | `168h` |
 | `GOOGLE_CLIENT_ID` | Google OAuth |
 
@@ -962,13 +1016,16 @@ psql $POSTGRES_DSN -f migrations/006_risk_scoring_verdict.sql
 ## Phụ lục: Checklist tích hợp Frontend
 
 1. Đăng nhập → lưu `access_token`.
-2. Upload video → poll `GET /videos/:id/status` hoặc WebSocket `video.progress`.
-3. Phát video: `<video src={video_url} />` (presigned MinIO).
-4. Khi `status=completed`:
+2. Cập nhật profile: `PATCH /users/me` với `FormData` (`full_name`, `avatar` file tùy chọn).
+3. Upload video → poll `GET /videos/:id/status` hoặc WebSocket `video.progress`.
+4. Phát video: `<video src={video_url} />` (presigned inline).
+5. Tải video: `GET /videos/:id/download` → mở `download_url`.
+6. Xóa video: `DELETE /videos/:id`.
+7. Khi `status=completed`:
    - Badge theo `verdict`: `safe` / `warning` / `violation`.
    - `violated === true` cho cả `warning` và `violation`.
    - Timeline từ `violation_segments` (`start_sec`–`end_sec`).
-5. Map `category` trên timeline:
+8. Map `category` trên timeline:
    - `nudity` → nội dung nhạy cảm (visual)
    - `violence` → bạo lực (visual)
    - `hate_speech` → ngôn ngữ độc hại (audio)

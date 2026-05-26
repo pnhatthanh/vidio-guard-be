@@ -14,11 +14,24 @@ import (
 	"github.com/minio/minio-go/v7/pkg/credentials"
 )
 
+type PresignDisposition string
+
+const (
+	PresignInline     PresignDisposition = "inline"
+	PresignAttachment PresignDisposition = "attachment"
+)
+
+type PresignOptions struct {
+	Disposition PresignDisposition
+	Filename    string
+}
+
 type StoreProvider interface {
 	EnsureBucket(ctx context.Context) error
 	Put(ctx context.Context, objectKey string, reader io.Reader, size int64, contentType string) error
 	DownloadToFile(ctx context.Context, objectKey, destPath string) error
-	PresignedGetURL(ctx context.Context, objectKey string, expiry time.Duration) (string, error)
+	PresignedGetURL(ctx context.Context, objectKey string, expiry time.Duration, opts *PresignOptions) (string, error)
+	Remove(ctx context.Context, objectKey string) error
 	Bucket() string
 }
 
@@ -163,8 +176,24 @@ func (s *minioStore) Put(ctx context.Context, objectKey string, reader io.Reader
 	return err
 }
 
+func contentDisposition(opts *PresignOptions) string {
+	disposition := PresignInline
+	filename := ""
+	if opts != nil {
+		if opts.Disposition != "" {
+			disposition = opts.Disposition
+		}
+		filename = strings.TrimSpace(opts.Filename)
+	}
+	if filename == "" {
+		return string(disposition)
+	}
+	safe := strings.ReplaceAll(filename, `"`, `\"`)
+	return fmt.Sprintf(`%s; filename="%s"`, disposition, safe)
+}
+
 // PresignedGetURL returns a GET URL signed on MINIO_PUBLIC_ENDPOINT (browser must reach that host).
-func (s *minioStore) PresignedGetURL(ctx context.Context, objectKey string, expiry time.Duration) (string, error) {
+func (s *minioStore) PresignedGetURL(ctx context.Context, objectKey string, expiry time.Duration, opts *PresignOptions) (string, error) {
 	if objectKey == "" {
 		return "", fmt.Errorf("objectKey is required")
 	}
@@ -178,13 +207,20 @@ func (s *minioStore) PresignedGetURL(ctx context.Context, objectKey string, expi
 	}
 
 	reqParams := make(url.Values)
-	reqParams.Set("response-content-disposition", "inline")
+	reqParams.Set("response-content-disposition", contentDisposition(opts))
 
 	u, err := s.presignClient.PresignedGetObject(ctx, s.bucket, objectKey, expiry, reqParams)
 	if err != nil {
 		return "", err
 	}
 	return u.String(), nil
+}
+
+func (s *minioStore) Remove(ctx context.Context, objectKey string) error {
+	if objectKey == "" {
+		return fmt.Errorf("objectKey is required")
+	}
+	return s.client.RemoveObject(ctx, s.bucket, objectKey, minio.RemoveObjectOptions{})
 }
 
 func (s *minioStore) DownloadToFile(ctx context.Context, objectKey, destPath string) error {
