@@ -6,6 +6,7 @@ from fastapi import APIRouter
 
 from app.config import get_settings
 from app.model import is_loaded as phobert_loaded
+from app.preprocess import denoise, vad
 from app.transcriber import _whisper, get_whisper_model_name
 from app.schemas import HealthResponse
 
@@ -22,4 +23,7 @@ def health() -> HealthResponse:
         whisper_model=get_whisper_model_name() if _whisper else settings.whisper_model_size,
         phobert_loaded=phobert_loaded(),
         device=device,
+        preprocess_enabled=settings.preprocess_enabled,
+        deepfilter_loaded=denoise.is_deepfilter_loaded(),
+        silero_loaded=vad.is_silero_loaded(),
     )

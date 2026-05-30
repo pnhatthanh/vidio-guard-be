@@ -14,5 +14,9 @@ torch==2.3.1                    # CPU build; swap image in Dockerfile for CUDA
 transformers==4.46.3
 pyvi==0.1.1                     # Vietnamese word segmentation (must match training)
 
-# ── Numerics ──────────────────────────────────────────────────────────────────
+# ── Numerics / audio I/O ──────────────────────────────────────────────────────
 numpy==1.26.4
+soundfile==0.12.1
+
+# ── Pre-ASR (DeepFilterNet + Silero VAD) ─────────────────────────────────────
+deepfilternet==0.5.6

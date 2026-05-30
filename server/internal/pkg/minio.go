@@ -71,7 +71,6 @@ func NewStoreProvider(endpoint, publicEndpoint, accessKey, secretKey string, use
 		if err != nil {
 			return nil, fmt.Errorf("minio internal endpoint: %w", err)
 		}
-		// Sign URLs with public host (localhost:9000) but dial internal minio:9000 from Docker.
 		presignClient, err = newMinioClient(presignTarget, useSSL, accessKey, secretKey, dialOverrideTransport(internalHost))
 		if err != nil {
 			return nil, fmt.Errorf("minio presign client: %w", err)

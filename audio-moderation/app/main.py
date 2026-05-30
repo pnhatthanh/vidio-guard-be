@@ -16,6 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import get_settings
 from app.transcriber import load_whisper
 from app.model import load_phobert
+from app.preprocess.pipeline import load_preprocess_models
 from app.routers import health, predict
 
 logging.basicConfig(
@@ -31,6 +32,7 @@ settings = get_settings()
 async def lifespan(app: FastAPI):
     logger.info("🚀 Starting VideoGuard Audio Moderation Service…")
     load_whisper()
+    load_preprocess_models()
     load_phobert()
     logger.info("✅ All models ready — service is accepting requests")
     yield

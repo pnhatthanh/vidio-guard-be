@@ -20,6 +20,7 @@ import (
 
 type container struct {
 	store           pkg.StoreProvider
+	mailer          pkg.Mailer
 	cache           pkg.CacheProvider
 	db              pkg.DBProvider
 	enqueuer        queue.Enqueuer
@@ -52,6 +53,7 @@ func buildInfra(cfg *config.Config) (*container, error) {
 			time.Sleep(retryDelay)
 		}
 	}
+	mailer := pkg.NewMailer(cfg.SMTP)
 
 	cache, err := pkg.NewCacheProvider(cfg.Redis.Addr, cfg.Redis.Password, cfg.Redis.DB)
 	if err != nil {
@@ -97,6 +99,7 @@ func buildInfra(cfg *config.Config) (*container, error) {
 
 	return &container{
 		store:           store,
+		mailer:          mailer,
 		cache:           cache,
 		db:              db,
 		enqueuer:        enqueuer,
@@ -115,8 +118,7 @@ func buildServer(cfg *config.Config, c *container) (*Server, error) {
 	violationRepo := repository.NewViolationSegmentRepository(gdb)
 
 	tokenSvc := services.NewTokenService(&cfg.JWT, c.cache)
-	mailer := pkg.NewMailer(cfg.SMTP)
-	authSvc := services.NewAuthService(userRepo, tokenRepo, tokenSvc, c.cache, mailer, &cfg.Google, &cfg.JWT, cfg.PasswordReset)
+	authSvc := services.NewAuthService(userRepo, tokenRepo, tokenSvc, c.cache, c.mailer, &cfg.Google, &cfg.JWT, cfg.PasswordReset)
 	userSvc := services.NewUserService(userRepo, c.store, cfg.Minio.PresignURLTTL)
 	videoSvc := services.NewVideoService(videoRepo, verdictRepo, violationRepo, c.enqueuer, c.store, cfg.Minio.PresignURLTTL)
 

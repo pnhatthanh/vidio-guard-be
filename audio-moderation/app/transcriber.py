@@ -1,27 +1,28 @@
 """
-faster-whisper — segment gốc (seg.start / seg.end).
+faster-whisper — segment gốc (seg.start / seg.end) with optional preprocess pipeline.
 """
 import logging
-from dataclasses import dataclass
+import os
 
 import torch
 from faster_whisper import WhisperModel
 
 from app.config import get_settings
+from app.preprocess.pipeline import (
+    PreprocessResult,
+    cleanup_preprocess,
+    extract_region_wav,
+    preprocess_for_asr,
+)
+from app.preprocess.timestamps import merge_segment_lists, offset_segments
 from app.segment_filter import is_spam_or_hallucination
+from app.segments import TranscriptSegment
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
 _whisper: WhisperModel | None = None
 _whisper_model_name: str = ""
-
-
-@dataclass
-class TranscriptSegment:
-    text: str
-    start_sec: float
-    end_sec: float
 
 
 def _segments_from_whisper(raw_segments) -> list[TranscriptSegment]:
@@ -105,6 +106,12 @@ def get_whisper_model_name() -> str:
     return _whisper_model_name or settings.whisper_model_size
 
 
+def _use_builtin_vad() -> bool:
+    if settings.preprocess_enabled and settings.preprocess_silero_vad:
+        return settings.whisper_use_builtin_vad
+    return True
+
+
 def _run_transcribe(model: WhisperModel, audio_path: str, *, use_vad: bool) -> tuple[list, object]:
     kwargs: dict = {
         "language": settings.whisper_language,
@@ -131,28 +138,66 @@ def _run_transcribe(model: WhisperModel, audio_path: str, *, use_vad: bool) -> t
     return list(segments_iter), info
 
 
+def _transcribe_file(model: WhisperModel, audio_path: str) -> list[TranscriptSegment]:
+    use_vad = _use_builtin_vad()
+    raw, info = _run_transcribe(model, audio_path, use_vad=use_vad)
+    sentences = _segments_from_whisper(raw)
+
+    if not sentences and use_vad:
+        logger.warning("0 segments with built-in VAD — retry without VAD")
+        raw, info = _run_transcribe(model, audio_path, use_vad=False)
+        sentences = _segments_from_whisper(raw)
+
+    logger.info(
+        "Whisper file — lang=%s (prob=%.2f) kept=%d",
+        info.language,
+        info.language_probability,
+        len(sentences),
+    )
+    return sentences
+
+
+def _transcribe_with_regions(
+    model: WhisperModel,
+    prep: PreprocessResult,
+) -> list[TranscriptSegment]:
+    chunk_paths: list[str] = []
+    per_region: list[list[TranscriptSegment]] = []
+
+    try:
+        for region in prep.regions:
+            chunk_path = extract_region_wav(prep.audio_path, region)
+            chunk_paths.append(chunk_path)
+            segs = _transcribe_file(model, chunk_path)
+            per_region.append(offset_segments(segs, region.start_sec))
+        return merge_segment_lists(per_region)
+    finally:
+        for p in chunk_paths:
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
+
+
 def transcribe_audio(audio_path: str) -> list[TranscriptSegment]:
     model = get_whisper()
     logger.info("Transcribing with %s: %s", get_whisper_model_name(), audio_path)
 
-    raw, info = _run_transcribe(model, audio_path, use_vad=True)
-    sentences = _segments_from_whisper(raw)
+    prep = preprocess_for_asr(audio_path)
+    try:
+        if prep.regions:
+            logger.info("Silero chunking: %d region(s)", len(prep.regions))
+            sentences = _transcribe_with_regions(model, prep)
+        else:
+            sentences = _transcribe_file(model, prep.audio_path)
 
-    if not sentences:
-        logger.warning("0 segments with VAD — retry without VAD")
-        raw, info = _run_transcribe(model, audio_path, use_vad=False)
-        sentences = _segments_from_whisper(raw)
+        if sentences:
+            sample = [
+                (round(s.start_sec, 2), round(s.end_sec, 2), s.text[:50])
+                for s in sentences[:5]
+            ]
+            logger.info("Sample timings: %s", sample)
 
-    if sentences:
-        sample = [(round(s.start_sec, 2), round(s.end_sec, 2), s.text[:50]) for s in sentences[:5]]
-        logger.info("Sample timings: %s", sample)
-
-    logger.info(
-        "Whisper done — lang=%s (prob=%.2f) raw=%d kept=%d duration=%.1fs",
-        info.language,
-        info.language_probability,
-        len(raw),
-        len(sentences),
-        getattr(info, "duration", 0.0),
-    )
-    return sentences
+        return sentences
+    finally:
+        cleanup_preprocess(prep)

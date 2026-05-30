@@ -167,7 +167,7 @@ Nếu frame extraction lỗi → fail toàn pipeline:
 
 Audio được xuất ra `audio.wav` cho faster-whisper:
 
-- **Mono 16 kHz PCM s16le** — `pan=mono`, `aresample=16000:resampler=swr`
+- **Mono 16 kHz PCM s16le** — `pan=mono`, `highpass`, `dynaudnorm`, `aresample=16000:resampler=swr`
 - `-fflags +genpts`, `-map 0:a:0?`: [server/internal/services/video_processor.go](../internal/services/video_processor.go)
 - `video-api` chờ `image-moderation` **healthy** (model TensorFlow load xong, ~30–60s) trước khi nhận job: [docker-compose.yml](../../docker-compose.yml)
 

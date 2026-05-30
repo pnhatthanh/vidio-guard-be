@@ -52,7 +52,7 @@ func (p *ffmpegVideoProcessor) Process(ctx context.Context, job dto.VideoJob, pr
 		framesPattern,
 	}
 
-	// faster-whisper: mono 16 kHz PCM (mix L/R, resample swr — Alpine-safe).
+	// faster-whisper: mono 16 kHz PCM + light normalize (dynaudnorm) for stable ASR levels.
 	audioOut := filepath.Join(audioDir, "audio.wav")
 	audioArgs := []string{
 		"-hide_banner",
@@ -61,7 +61,7 @@ func (p *ffmpegVideoProcessor) Process(ctx context.Context, job dto.VideoJob, pr
 		"-i", job.VideoPath,
 		"-map", "0:a:0?",
 		"-vn",
-		"-af", "pan=mono|c0=0.5*c0+0.5*c1,aresample=16000:resampler=swr,aformat=sample_fmts=s16:channel_layouts=mono",
+		"-af", "pan=mono|c0=0.5*c0+0.5*c1,highpass=f=80,dynaudnorm=f=150:g=15,aresample=16000:resampler=swr,aformat=sample_fmts=s16:channel_layouts=mono",
 		"-ar", "16000",
 		"-ac", "1",
 		"-c:a", "pcm_s16le",

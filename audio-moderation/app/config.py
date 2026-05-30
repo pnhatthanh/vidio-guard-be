@@ -15,6 +15,18 @@ class Settings(BaseSettings):
     whisper_beam_size: int = 5
     whisper_cpu_threads: int = 4
     whisper_num_workers: int = 1
+    whisper_use_builtin_vad: bool = False
+
+    # ── Pre-ASR pipeline ──────────────────────────────────────────────────────
+    preprocess_enabled: bool = True
+    preprocess_denoise: bool = True
+    preprocess_silero_vad: bool = True
+    preprocess_demucs: bool = False
+    silero_threshold: float = 0.5
+    silero_min_speech_ms: int = 250
+    silero_min_silence_ms: int = 300
+    silero_speech_pad_ms: int = 200
+    chunk_max_sec: float = 30.0
 
     # ── PhoBERT (CustomPhoBERT binary: Clean / Toxic) ─────────────────────────
     phobert_model_path: str = "models"

@@ -25,8 +25,11 @@ class AudioPredictResponse(BaseModel):
 # ── Health ────────────────────────────────────────────────────────────────────
 
 class HealthResponse(BaseModel):
-    status:         str
-    whisper_loaded: bool
-    whisper_model:  str = ""
-    phobert_loaded: bool
-    device:         str
+    status:              str
+    whisper_loaded:      bool
+    whisper_model:       str = ""
+    phobert_loaded:      bool
+    device:              str
+    preprocess_enabled:  bool = False
+    deepfilter_loaded:   bool = False
+    silero_loaded:       bool = False
