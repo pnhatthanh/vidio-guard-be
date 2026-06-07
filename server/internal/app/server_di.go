@@ -10,12 +10,11 @@ import (
 	"github.com/pnhatthanh/vidio-guard-be/internal/config"
 	"github.com/pnhatthanh/vidio-guard-be/internal/handlers"
 	"github.com/pnhatthanh/vidio-guard-be/internal/pkg"
-	"github.com/pnhatthanh/vidio-guard-be/internal/queue"
 	"github.com/pnhatthanh/vidio-guard-be/internal/realtime"
 	"github.com/pnhatthanh/vidio-guard-be/internal/repository"
 	"github.com/pnhatthanh/vidio-guard-be/internal/services"
-	"github.com/pnhatthanh/vidio-guard-be/internal/ws"
 	"github.com/pnhatthanh/vidio-guard-be/internal/worker"
+	"github.com/pnhatthanh/vidio-guard-be/internal/ws"
 )
 
 type container struct {
@@ -23,7 +22,7 @@ type container struct {
 	mailer          pkg.Mailer
 	cache           pkg.CacheProvider
 	db              pkg.DBProvider
-	enqueuer        queue.Enqueuer
+	enqueuer        worker.Enqueuer
 	progressPublish *realtime.RedisPubSub
 	progressSub     *realtime.RedisPubSub
 }
@@ -70,7 +69,7 @@ func buildInfra(cfg *config.Config) (*container, error) {
 		DB:       cfg.Redis.DB,
 	}
 	asynqClient := asynq.NewClient(redisOpt)
-	enqueuer := queue.NewAsynqEnqueuer(
+	enqueuer := worker.NewAsynqEnqueuer(
 		asynqClient,
 		cfg.Asynq.Queue,
 		cfg.Asynq.MaxRetry,
@@ -81,7 +80,6 @@ func buildInfra(cfg *config.Config) (*container, error) {
 		cfg.Redis.Addr,
 		cfg.Redis.Password,
 		cfg.Redis.DB,
-		cfg.Redis.ProgressChannel,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("init redis progress publisher: %w", err)
@@ -90,7 +88,6 @@ func buildInfra(cfg *config.Config) (*container, error) {
 		cfg.Redis.Addr,
 		cfg.Redis.Password,
 		cfg.Redis.DB,
-		cfg.Redis.ProgressChannel,
 	)
 	if err != nil {
 		_ = progressPublish.Close()
@@ -158,7 +155,7 @@ func buildWorker(cfg *config.Config, c *container) (*Worker, error) {
 
 	progress := services.NewVideoProgress(videoRepo, c.progressPublish)
 	aiModerator := services.NewAIModerator(cfg.AIService)
-	processor := services.NewFFmpegVideoProcessor(cfg.OutputDir, aiModerator)
+	processor := services.NewFFmpegVideoProcessor(cfg.Server.OutputDir, aiModerator)
 	scorer := services.NewModerationScorer(cfg.Moderation)
 	processingSvc := services.NewVideoProcessingService(
 		videoRepo,
@@ -168,7 +165,7 @@ func buildWorker(cfg *config.Config, c *container) (*Worker, error) {
 		c.store,
 		progress,
 		scorer,
-		cfg.OutputDir,
+		cfg.Server.OutputDir,
 	)
 
 	videoHandler := &worker.VideoProcessHandler{Processing: processingSvc}

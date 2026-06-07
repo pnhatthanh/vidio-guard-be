@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"net/http"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/pnhatthanh/vidio-guard-be/internal/apperror"
@@ -11,7 +10,7 @@ import (
 	"github.com/pnhatthanh/vidio-guard-be/internal/utils"
 )
 
-const maxProfileMultipartBytes = 6 << 20 // 6 MB (avatar limit 5 MB + overhead)
+const maxProfileMultipartBytes = 6 << 20
 
 type UserHandler interface {
 	GetMe() gin.HandlerFunc
@@ -52,14 +51,10 @@ func (h *userHandler) UpdateMe() gin.HandlerFunc {
 			return
 		}
 
-		if err := c.Request.ParseMultipartForm(maxProfileMultipartBytes); err != nil {
-			c.Error(apperror.NewBadRequestError("invalid multipart form"))
+		var input dto.UpdateProfileInput
+		if err := c.ShouldBind(&input); err != nil {
+			c.Error(apperror.NewBadRequestError(err.Error()))
 			return
-		}
-
-		input := dto.UpdateProfileInput{
-			FullName:     c.PostForm("full_name"),
-			RemoveAvatar: strings.EqualFold(strings.TrimSpace(c.PostForm("remove_avatar")), "true"),
 		}
 
 		file, err := c.FormFile("avatar")
@@ -105,6 +100,6 @@ func (h *userHandler) ChangePassword() gin.HandlerFunc {
 			c.Error(err)
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"message": "password updated"})
+		c.JSON(http.StatusOK, dto.MessageResponse{Message: "password changed successfully"})
 	}
 }

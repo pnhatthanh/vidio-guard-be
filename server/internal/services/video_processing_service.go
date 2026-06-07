@@ -143,7 +143,7 @@ func (s *videoProcessingService) persistResults(ctx context.Context, videoID uui
 	}
 
 	log.Printf("[processing] video=%s verdict=%s final=%.4f frame=%.4f audio=%.4f violations=%d hard_rule=%v",
-		videoID, verdict.Verdict, verdict.FinalScore, verdict.FrameScore, verdict.AudioScore,
+		videoID, verdict.Verdict, verdict.RiskScore, verdict.FrameScore, verdict.AudioScore,
 		len(segments), verdict.HardRuleTriggered)
 
 	return nil

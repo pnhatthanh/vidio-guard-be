@@ -33,11 +33,11 @@ func (m *smtpMailer) Enabled() bool {
 }
 
 func (m *smtpMailer) Send(ctx context.Context, to, subject, body string) error {
-	return m.sendMessage(ctx, to, subject, buildPlainEmail(to, subject, body))
+	return m.sendMessage(ctx, to, subject, buildPlainEmail(body))
 }
 
 func (m *smtpMailer) SendHTML(ctx context.Context, to, subject, htmlBody, plainBody string) error {
-	return m.sendMessage(ctx, to, subject, buildAlternativeEmail(to, subject, plainBody, htmlBody))
+	return m.sendMessage(ctx, to, subject, buildAlternativeEmail(plainBody, htmlBody))
 }
 
 func (m *smtpMailer) sendMessage(ctx context.Context, to, subject string, msg []byte) error {
@@ -163,9 +163,7 @@ func buildEmailHeaders(from, to, subject string) []byte {
 	return []byte(strings.Join(headers, "\r\n") + "\r\n")
 }
 
-func buildPlainEmail(to, subject, body string) []byte {
-	_ = to
-	_ = subject
+func buildPlainEmail(body string) []byte {
 	part := []string{
 		"Content-Type: text/plain; charset=UTF-8",
 		"Content-Transfer-Encoding: quoted-printable",
@@ -179,9 +177,7 @@ func buildPlainEmail(to, subject, body string) []byte {
 	return buf.Bytes()
 }
 
-func buildAlternativeEmail(to, subject, plainBody, htmlBody string) []byte {
-	_ = to
-	_ = subject
+func buildAlternativeEmail(plainBody, htmlBody string) []byte {
 	boundary := "vidio-guard-boundary"
 
 	var buf bytes.Buffer

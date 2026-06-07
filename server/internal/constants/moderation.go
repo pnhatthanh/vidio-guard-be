@@ -1,6 +1,5 @@
 package constants
 
-// Moderation verdict levels (stored in final_verdicts.verdict).
 type ModerationVerdict string
 
 const (

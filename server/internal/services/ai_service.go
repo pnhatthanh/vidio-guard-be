@@ -17,7 +17,6 @@ import (
 	"github.com/pnhatthanh/vidio-guard-be/internal/dto"
 )
 
-// AIModerator calls external image and audio moderation APIs.
 type AIModerator interface {
 	PredictFramesDir(videoID, framesDir string) (*dto.PredictionResult, error)
 	PredictAudioFile(videoID, audioPath string) (*dto.AudioResult, error)
@@ -31,7 +30,7 @@ type aiModerator struct {
 func NewAIModerator(cfg config.AIServiceConfig) AIModerator {
 	timeout := cfg.AudioTaskTimeout
 	if timeout <= 0 {
-		timeout = 10 * time.Minute
+		timeout = 15 * time.Minute
 	}
 	return &aiModerator{
 		cfg: cfg,
@@ -41,9 +40,6 @@ func NewAIModerator(cfg config.AIServiceConfig) AIModerator {
 	}
 }
 
-// PredictFramesDir reads frames from framesDir, sends them in chunks to the image
-// moderation service, and aggregates results. Early-exit skips remaining chunks
-// once FlaggedCount reaches EarlyExitCount.
 func (a *aiModerator) PredictFramesDir(videoID, framesDir string) (*dto.PredictionResult, error) {
 	framePaths, err := a.listFramePaths(framesDir)
 	if err != nil {
@@ -63,18 +59,17 @@ func (a *aiModerator) PredictFramesDir(videoID, framesDir string) (*dto.Predicti
 	if chunkSize <= 0 {
 		chunkSize = 32
 	}
-	earlyExit := a.cfg.EarlyExitCount
 	totalChunks := (totalFrames + chunkSize - 1) / chunkSize
 
-	log.Printf("[ai_moderator] video=%s: %d frames → %d chunk(s) of ≤%d (early-exit after %d flagged)",
-		videoID, totalFrames, totalChunks, chunkSize, earlyExit)
+	log.Printf("[ai_moderator] video=%s: %d frames → %d chunk(s) of ≤%d",
+		videoID, totalFrames, totalChunks, chunkSize)
 
 	result := &dto.PredictionResult{
 		VideoID:     videoID,
 		Predictions: make([]dto.FrameResult, 0, totalFrames),
 	}
 
-	for chunkIdx := 0; chunkIdx < totalChunks; chunkIdx++ {
+	for chunkIdx := range totalChunks {
 		start := chunkIdx * chunkSize
 		end := min(start+chunkSize, totalFrames)
 		chunk := framePaths[start:end]
@@ -95,19 +90,12 @@ func (a *aiModerator) PredictFramesDir(videoID, framesDir string) (*dto.Predicti
 				result.FlaggedCount++
 			}
 		}
-
-		if earlyExit > 0 && result.FlaggedCount >= earlyExit {
-			log.Printf("[ai_moderator] video=%s: early exit — %d flagged (threshold %d, %d frames unchecked)",
-				videoID, result.FlaggedCount, earlyExit, totalFrames-end)
-			result.FlaggedEarly = true
-			break
-		}
 	}
 
 	result.OverallLabel = dto.OverallFrameLabel(result.Predictions)
-	log.Printf("[ai_moderator] video=%s: done — checked %d/%d, flagged=%d, early=%v, verdict=%s",
-		videoID, result.Total, totalFrames, result.FlaggedCount, result.FlaggedEarly, result.OverallLabel)
-
+	log.Printf("[ai_moderator] video=%s: done — checked %d/%d, flagged=%d, verdict=%s",
+		videoID, result.Total, totalFrames, result.FlaggedCount, result.OverallLabel)
+		
 	return result, nil
 }
 

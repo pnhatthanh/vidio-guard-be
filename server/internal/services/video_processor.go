@@ -39,14 +39,21 @@ func (p *ffmpegVideoProcessor) Process(ctx context.Context, job dto.VideoJob, pr
 		}
 	}
 
-	if err := progress.Update(ctx, videoID, constants.StageStarting); err != nil {
-		return nil, err
+	originalFPS, err := utils.GetVideoFPS(job.VideoPath)
+	if err != nil {
+		return nil, fmt.Errorf("get video FPS: %w", err)
 	}
+
+	targetFPS := int(originalFPS / 3)
+	if targetFPS < 1 {
+		targetFPS = 1
+	}
+	log.Printf("[processor] video=%s: original FPS=%.2f, target FPS=%d", videoID, originalFPS, targetFPS)
 
 	framesPattern := filepath.Join(framesDir, "frame_%05d.jpg")
 	frameArgs := []string{
 		"-i", job.VideoPath,
-		"-vf", "fps=1,select='gt(scene,0.3)+not(mod(n,10))'",
+		"-vf", fmt.Sprintf("fps=%d,select='gt(scene,0.3)+not(mod(n,10))'", targetFPS),
 		"-vsync", "vfr",
 		"-q:v", "2",
 		framesPattern,

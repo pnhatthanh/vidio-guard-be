@@ -57,7 +57,7 @@ func (p *VideoProgress) notify(ctx context.Context, videoID uuid.UUID, status co
 		video.UserID.String(),
 		videoID.String(),
 		status,
-		string(stage),
+		stage,
 		percent,
 	)
 	if err := p.publisher.Publish(ctx, ev); err != nil {

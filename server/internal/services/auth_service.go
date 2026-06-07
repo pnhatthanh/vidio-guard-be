@@ -2,12 +2,12 @@ package services
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -19,11 +19,12 @@ import (
 	"github.com/pnhatthanh/vidio-guard-be/internal/pkg"
 	"github.com/pnhatthanh/vidio-guard-be/internal/repository"
 	"github.com/pnhatthanh/vidio-guard-be/internal/utils"
+	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
 
 type AuthService interface {
-	Register(ctx context.Context, req dto.RegisterRequest) (*dto.UserDTO, error)
+	Register(ctx context.Context, req dto.RegisterRequest) (*dto.UserProfileResponse, error)
 	Login(ctx context.Context, req dto.LoginRequest) (*dto.AuthResponse, error)
 	LoginWithGoogle(ctx context.Context, idToken string) (*dto.AuthResponse, error)
 	RefreshToken(ctx context.Context, rawToken string) (*dto.AuthResponse, error)
@@ -67,7 +68,7 @@ func NewAuthService(
 	}
 }
 
-func (s *authService) Register(ctx context.Context, req dto.RegisterRequest) (*dto.UserDTO, error) {
+func (s *authService) Register(ctx context.Context, req dto.RegisterRequest) (*dto.UserProfileResponse, error) {
 	email := utils.NormalizeEmail(req.Email)
 	fullName := strings.TrimSpace(req.FullName)
 
@@ -91,7 +92,7 @@ func (s *authService) Register(ctx context.Context, req dto.RegisterRequest) (*d
 		return nil, apperror.NewInternalServerError("failed to create user")
 	}
 
-	return dto.NewUserDTO(user), nil
+	return dto.NewUserProfileResponse(user), nil
 }
 
 func (s *authService) Login(ctx context.Context, req dto.LoginRequest) (*dto.AuthResponse, error) {
@@ -120,31 +121,34 @@ func (s *authService) LoginWithGoogle(ctx context.Context, idToken string) (*dto
 	if err != nil {
 		return nil, apperror.NewUnauthorizedError("invalid Google token")
 	}
-
-	if user, err := s.users.FindByGoogleID(ctx, info.Sub); err == nil {
-		if err := s.syncGoogleAvatarIfEmpty(ctx, user, info.Picture); err != nil {
-			return nil, apperror.NewInternalServerError("failed to update profile")
-		}
-		return s.issueTokens(ctx, user)
-	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, apperror.NewInternalServerError("failed to find user")
+	user, err := s.findOrCreateGoogleUser(ctx, info)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.syncGoogleAvatarIfEmpty(ctx, user, info.Picture); err != nil {
+		log.Printf("[auth] failed to sync google avatar for user %s: %v", user.ID, err)
 	}
 
+	return s.issueTokens(ctx, user)
+}
+
+func (s *authService) findOrCreateGoogleUser(ctx context.Context, info *googleTokenInfo) (*model.User, error) {
+	if user, err := s.users.FindByGoogleID(ctx, info.Sub); err == nil {
+		return user, nil
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, apperror.NewInternalServerError("failed to find user by google id")
+	}
 	if user, err := s.users.FindByEmail(ctx, info.Email); err == nil {
 		if user.GoogleID == nil || *user.GoogleID == "" {
 			if err := s.users.UpdateGoogleID(ctx, user.ID, info.Sub); err != nil {
-				return nil, apperror.NewInternalServerError("failed to link Google account")
+				return nil, apperror.NewInternalServerError("failed to link google account")
 			}
 			user.GoogleID = &info.Sub
 		}
-		if err := s.syncGoogleAvatarIfEmpty(ctx, user, info.Picture); err != nil {
-			return nil, apperror.NewInternalServerError("failed to update profile")
-		}
-		return s.issueTokens(ctx, user)
+		return user, nil
 	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, apperror.NewInternalServerError("failed to find user")
+		return nil, apperror.NewInternalServerError("failed to find user by email")
 	}
-
 	user := &model.User{
 		FullName: defaultGoogleName(info.Name),
 		Email:    info.Email,
@@ -153,22 +157,14 @@ func (s *authService) LoginWithGoogle(ctx context.Context, idToken string) (*dto
 	if pic := strings.TrimSpace(info.Picture); pic != "" {
 		user.AvatarURL = &pic
 	}
-	if err := s.users.Create(ctx, user); err != nil {
-		existing, err := s.users.FindByEmail(ctx, info.Email)
-		if err != nil {
-			return nil, apperror.NewInternalServerError("failed to find user")
-		}
-		if existing.GoogleID == nil || *existing.GoogleID == "" {
-			_ = s.users.UpdateGoogleID(ctx, existing.ID, info.Sub)
-			existing.GoogleID = &info.Sub
-		}
-		if err := s.syncGoogleAvatarIfEmpty(ctx, existing, info.Picture); err != nil {
-			return nil, apperror.NewInternalServerError("failed to update profile")
-		}
-		return s.issueTokens(ctx, existing)
-	}
 
-	return s.issueTokens(ctx, user)
+	if err := s.users.Create(ctx, user); err != nil {
+		if existingUser, findErr := s.users.FindByEmail(ctx, info.Email); findErr == nil {
+			return existingUser, nil
+		}
+		return nil, apperror.NewInternalServerError("failed to create user")
+	}
+	return user, nil
 }
 
 func (s *authService) RefreshToken(ctx context.Context, rawToken string) (*dto.AuthResponse, error) {
@@ -177,7 +173,7 @@ func (s *authService) RefreshToken(ctx context.Context, rawToken string) (*dto.A
 		return nil, apperror.NewUnauthorizedError("invalid refresh token")
 	}
 
-	hash := sha256Hex(rawToken)
+	hash := utils.HashWithSHA256(rawToken)
 	stored, err := s.tokens.FindByHash(ctx, hash)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -220,11 +216,8 @@ func (s *authService) Logout(ctx context.Context, jti string, userID uuid.UUID, 
 	if ttl <= 0 {
 		ttl = time.Minute
 	}
-	if err := s.jwt.BlacklistToken(ctx, jti, ttl); err != nil {
-		return apperror.NewInternalServerError("failed to revoke token")
-	}
 
-	hash := sha256Hex(rawRefreshToken)
+	hash := utils.HashWithSHA256(rawRefreshToken)
 	stored, err := s.tokens.FindByHash(ctx, hash)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -234,6 +227,9 @@ func (s *authService) Logout(ctx context.Context, jti string, userID uuid.UUID, 
 	}
 	if stored.UserID != userID {
 		return apperror.NewUnauthorizedError("invalid session")
+	}
+	if err := s.jwt.BlacklistToken(ctx, jti, ttl); err != nil {
+		return apperror.NewInternalServerError("failed to revoke token")
 	}
 	if err := s.tokens.DeleteByHash(ctx, hash); err != nil {
 		return apperror.NewInternalServerError("failed to revoke refresh token")
@@ -254,7 +250,7 @@ func (s *authService) issueTokens(ctx context.Context, user *model.User) (*dto.A
 
 	rt := &model.RefreshToken{
 		UserID:    user.ID,
-		TokenHash: sha256Hex(refresh),
+		TokenHash: utils.HashWithSHA256(refresh),
 		ExpiresAt: time.Now().Add(refreshTTL),
 	}
 	if err := s.tokens.Create(ctx, rt); err != nil {
@@ -336,7 +332,121 @@ func (s *authService) syncGoogleAvatarIfEmpty(ctx context.Context, user *model.U
 	return s.users.Update(ctx, user)
 }
 
-func sha256Hex(raw string) string {
-	sum := sha256.Sum256([]byte(raw))
-	return hex.EncodeToString(sum[:])
+const (
+	pwdResetOTPKeyPrefix      = "pwd_reset:otp:"
+	pwdResetCooldownKeyPrefix = "pwd_reset:cooldown:"
+	pwdResetAttemptsKeyPrefix = "pwd_reset:attempts:"
+)
+
+func (s *authService) ForgotPassword(ctx context.Context, req dto.ForgotPasswordRequest) (*dto.MessageResponse, error) {
+	email := utils.NormalizeEmail(req.Email)
+	msg := &dto.MessageResponse{
+		Message: "If an account with this email exists, a verification code has been sent",
+	}
+
+	cooldownKey := pwdResetCooldownKeyPrefix + email
+	if exists, _ := s.cache.IsExist(cooldownKey); exists {
+		return msg, nil
+	}
+
+	user, err := s.users.FindByEmail(ctx, email)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return msg, nil
+		}
+		return nil, apperror.NewInternalServerError("failed to process request")
+	}
+
+	otp, err := utils.GenerateOTP(6)
+	if err != nil {
+		return nil, apperror.NewInternalServerError("failed to generate verification code")
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(otp), bcrypt.DefaultCost)
+	if err != nil {
+		return nil, apperror.NewInternalServerError("failed to store verification code")
+	}
+
+	otpKey := pwdResetOTPKeyPrefix + email
+	if err := s.cache.Set(otpKey, string(hash), s.pwdReset.OTPTTL); err != nil {
+		return nil, apperror.NewInternalServerError("failed to store verification code")
+	}
+	_ = s.cache.Delete(pwdResetAttemptsKeyPrefix + email)
+
+	if err := s.cache.Set(cooldownKey, "1", s.pwdReset.CooldownTTL); err != nil {
+		log.Printf("[password_reset] cooldown for %s: %v", email, err)
+	}
+
+	mail := pkg.BuildPasswordResetEmail(
+		user.FullName,
+		email,
+		otp,
+		s.pwdReset.ResetPageURL,
+		s.pwdReset.OTPTTL,
+	)
+
+	if err := s.sendPasswordResetEmail(ctx, user.Email, mail, otp); err != nil {
+		log.Printf("[password_reset] send email to %s: %v", email, err)
+		return nil, apperror.NewInternalServerError("failed to send verification email")
+	}
+
+	return msg, nil
+}
+
+func (s *authService) ResetPassword(ctx context.Context, req dto.ResetPasswordRequest) (*dto.MessageResponse, error) {
+	email := utils.NormalizeEmail(req.Email)
+	otp := strings.TrimSpace(req.OTP)
+
+	otpKey := pwdResetOTPKeyPrefix + email
+	storedHash, err := s.cache.Get(otpKey)
+	if err != nil || storedHash == "" {
+		return nil, apperror.NewBadRequestError("invalid or expired verification code")
+	}
+
+	attemptsKey := pwdResetAttemptsKeyPrefix + email
+	attempts, _ := s.cache.Get(attemptsKey)
+	attemptCount, _ := strconv.Atoi(attempts)
+	if attemptCount >= s.pwdReset.MaxAttempts {
+		return nil, apperror.NewBadRequestError("too many invalid attempts, request a new code")
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(storedHash), []byte(otp)); err != nil {
+		n, incrErr := s.cache.Incr(attemptsKey)
+		if incrErr == nil && n == 1 {
+			_ = s.cache.Expire(attemptsKey, s.pwdReset.AttemptsTTL)
+		}
+		return nil, apperror.NewBadRequestError("invalid or expired verification code")
+	}
+
+	user, err := s.users.FindByEmail(ctx, email)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, apperror.NewBadRequestError("invalid or expired verification code")
+		}
+		return nil, apperror.NewInternalServerError("failed to reset password")
+	}
+
+	passwordHash, err := utils.HashPassword(req.NewPassword)
+	if err != nil {
+		return nil, apperror.NewInternalServerError("failed to hash password")
+	}
+
+	user.PasswordHash = passwordHash
+	if err := s.users.Update(ctx, user); err != nil {
+		return nil, apperror.NewInternalServerError("failed to reset password")
+	}
+
+	_ = s.cache.Delete(otpKey)
+	_ = s.cache.Delete(attemptsKey)
+	_ = s.tokens.DeleteByUserID(ctx, user.ID)
+
+	return &dto.MessageResponse{Message: "password reset successfully"}, nil
+}
+
+func (s *authService) sendPasswordResetEmail(ctx context.Context, to string, mail pkg.PasswordResetEmail, otp string) error {
+	if s.mailer.Enabled() {
+		return s.mailer.SendHTML(ctx, to, mail.Subject, mail.HTML, mail.PlainText)
+	}
+	log.Printf("[password_reset] SMTP not configured — OTP for %s: %s url=%s", to, otp, mail.ResetURL)
+	return nil
 }

@@ -40,6 +40,10 @@ func NewDBProvider(cfg *config.PostgresConfig) (DBProvider, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	sqlDB.SetMaxIdleConns(cfg.MaxIdleConns)
+	sqlDB.SetMaxOpenConns(cfg.MaxOpenConns)
+	sqlDB.SetConnMaxLifetime(cfg.ConnMaxLifetime)
 	if err := sqlDB.PingContext(ctx); err != nil {
 		_ = sqlDB.Close()
 		return nil, err

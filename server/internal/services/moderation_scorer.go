@@ -1,7 +1,9 @@
 package services
 
 import (
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
@@ -12,14 +14,10 @@ import (
 )
 
 const (
-	labelSafe     = "safe"
 	labelNsfw     = "nsfw"
 	labelViolence = "violence"
-	labelClean    = "Clean"
-	labelToxic    = "Toxic"
 
 	weightSafe     = 0
-	weightToxic    = 2
 	weightNsfw     = 4
 	weightViolence = 5
 )
@@ -31,7 +29,6 @@ type framePoint struct {
 	timestamp  float64
 }
 
-// ModerationScorer computes fused risk scores and final verdict.
 type ModerationScorer struct {
 	cfg config.ModerationConfig
 }
@@ -46,18 +43,8 @@ func (s *ModerationScorer) BuildFinalVerdict(
 	audio *dto.AudioResult,
 	videoDurationSec float64,
 ) *model.FinalVerdict {
-	totalFrames := 0
-	if frames != nil {
-		totalFrames = len(frames.Predictions)
-		if frames.Total > 0 {
-			totalFrames = frames.Total
-		}
-	}
-
+	totalFrames := frames.Total
 	duration := videoDurationSec
-	if duration <= 0 {
-		duration = inferDuration(frames, audio, totalFrames)
-	}
 
 	frameScore := s.computeFrameScore(frames)
 	audioScore := s.computeAudioScore(audio, duration)
@@ -71,18 +58,16 @@ func (s *ModerationScorer) BuildFinalVerdict(
 	verdict := s.verdictFromScore(finalScore)
 	if reason != "" {
 		verdict = constants.VerdictViolation
+		finalScore = 1.0
 	}
 
 	return &model.FinalVerdict{
 		VideoID:           videoID,
 		Verdict:           verdict.String(),
-		Transcript:        joinAudioTranscript(audio),
 		RiskScore:         finalScore,
 		FrameScore:        frameScore,
 		AudioScore:        audioScore,
-		FinalScore:        finalScore,
 		TotalFrames:       totalFrames,
-		VideoDurationSec:  duration,
 		HardRuleTriggered: reason != "",
 		HardRuleReason:    reason,
 	}
@@ -96,6 +81,7 @@ func (s *ModerationScorer) computeFrameScore(frames *dto.PredictionResult) float
 	for _, p := range frames.Predictions {
 		sum += float64(frameLabelWeight(p.Label)) * p.Confidence
 	}
+
 	raw := sum / float64(len(frames.Predictions))
 	return normalizeScore(raw, s.cfg.MaxLabelWeight)
 }
@@ -104,27 +90,13 @@ func (s *ModerationScorer) computeAudioScore(audio *dto.AudioResult, durationSec
 	if audio == nil || len(audio.Sentences) == 0 || durationSec <= 0 {
 		return 0
 	}
-
 	toxicDur, avgConf, _ := toxicAudioStats(audio)
 	if toxicDur <= 0 {
 		return 0
 	}
-
 	// Coverage × confidence: reflects how much of the video is toxic (not diluted by silence).
 	coverageScore := (toxicDur / durationSec) * avgConf
-
-	// Legacy density across full timeline (kept for short clips).
-	var weightedSum float64
-	for _, sent := range audio.Sentences {
-		dur := sent.EndSec - sent.StartSec
-		if dur <= 0 {
-			dur = 0.5
-		}
-		weightedSum += float64(audioLabelWeight(sent.Label)) * sent.Confidence * dur
-	}
-	densityScore := normalizeScore(weightedSum/durationSec, s.cfg.MaxLabelWeight)
-
-	return clamp01(maxFloat(coverageScore, densityScore))
+	return clamp01(coverageScore)
 }
 
 func (s *ModerationScorer) fuse(frameScore, audioScore float64) float64 {
@@ -266,7 +238,7 @@ func toxicAudioStats(audio *dto.AudioResult) (mergedDuration, avgConfidence floa
 	}
 	flaggedCount = len(spans)
 	if totalDur <= 0 {
-		return 0, 0, flaggedCount
+		return 0, 0, 0
 	}
 	return totalDur, confSum / totalDur, flaggedCount
 }
@@ -370,15 +342,6 @@ func frameLabelWeight(label string) int {
 	}
 }
 
-func audioLabelWeight(label string) int {
-	switch strings.TrimSpace(label) {
-	case labelToxic:
-		return weightToxic
-	default:
-		return weightSafe
-	}
-}
-
 func normalizeScore(raw, maxWeight float64) float64 {
 	return clamp01(raw / maxWeight)
 }
@@ -393,43 +356,46 @@ func clamp01(v float64) float64 {
 	return v
 }
 
-func maxFloat(a, b float64) float64 {
-	if a > b {
-		return a
+var frameNumberRE = regexp.MustCompile(`(\d+)`)
+
+func buildFinalVerdict(
+	videoID uuid.UUID,
+	frames *dto.PredictionResult,
+	audio *dto.AudioResult,
+	videoDurationSec float64,
+	scorer *ModerationScorer,
+) *model.FinalVerdict {
+	if scorer == nil {
+		scorer = NewModerationScorer(config.ModerationConfig{
+			FrameWeight:            0.7,
+			AudioWeight:            0.3,
+			SafeThreshold:          0.3,
+			ViolationThreshold:     0.6,
+			MaxLabelWeight:         5,
+			HardNsfwConfidence:     0.90,
+			HardNsfwSec:            5,
+			HardViolenceFrames:     10,
+			HardToxicSec:           15,
+			HardToxicCoverageRatio: 0.15,
+			HardToxicSegmentCount:  8,
+			HardToxicTotalSec:      30,
+		})
 	}
-	return b
+	return scorer.BuildFinalVerdict(videoID, frames, audio, videoDurationSec)
 }
 
-func joinAudioTranscript(audio *dto.AudioResult) string {
-	if audio == nil {
-		return ""
+func parseFrameNumber(name string) int {
+	m := frameNumberRE.FindStringSubmatch(name)
+	if len(m) < 2 {
+		return 0
 	}
-	var parts []string
-	for _, s := range audio.Sentences {
-		if t := strings.TrimSpace(s.Text); t != "" {
-			parts = append(parts, t)
-		}
-	}
-	return strings.Join(parts, " ")
+	n, _ := strconv.Atoi(m[1])
+	return n
 }
 
-func inferDuration(frames *dto.PredictionResult, audio *dto.AudioResult, totalFrames int) float64 {
-	var maxEnd float64
-	if audio != nil {
-		for _, s := range audio.Sentences {
-			if s.EndSec > maxEnd {
-				maxEnd = s.EndSec
-			}
-		}
+func score(scores map[string]float64, key string) float64 {
+	if scores == nil {
+		return 0
 	}
-	if maxEnd > 0 {
-		return maxEnd
-	}
-	if totalFrames > 0 {
-		return float64(totalFrames) * visualFrameDurationSec
-	}
-	if frames != nil && len(frames.Predictions) > 0 {
-		return float64(len(frames.Predictions)) * visualFrameDurationSec
-	}
-	return 1
+	return scores[key]
 }

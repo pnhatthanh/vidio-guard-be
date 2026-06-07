@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	avatarMaxBytes    = 5 << 20 // 5 MB
+	avatarMaxBytes     = 5 << 20 // 5 MB
 	avatarObjectPrefix = "avatars/"
 )
 
@@ -58,7 +58,16 @@ func (s *userService) GetProfile(ctx context.Context, userID uuid.UUID) (*dto.Us
 	if err != nil {
 		return nil, err
 	}
-	return dto.NewUserProfileResponse(user, s.resolveAvatarURL(ctx, user)), nil
+	avatarURL := s.resolveAvatarURL(ctx, user)
+	return &dto.UserProfileResponse{
+		ID:          user.ID.String(),
+		FullName:    user.FullName,
+		Email:       user.Email,
+		AvatarURL:   avatarURL,
+		HasPassword: user.PasswordHash != "",
+		HasGoogle:   user.GoogleID != nil && *user.GoogleID != "",
+		CreatedAt:   user.CreatedAt,
+	}, nil
 }
 
 func (s *userService) UpdateProfile(ctx context.Context, userID uuid.UUID, input dto.UpdateProfileInput) (*dto.UserProfileResponse, error) {
@@ -68,10 +77,12 @@ func (s *userService) UpdateProfile(ctx context.Context, userID uuid.UUID, input
 	}
 
 	fullName := strings.TrimSpace(input.FullName)
-	if len(fullName) < 2 {
-		return nil, apperror.NewBadRequestError("full_name must be at least 2 characters")
+	if fullName != "" {
+		if len(fullName) < 2 {
+			return nil, apperror.NewBadRequestError("full_name must be at least 2 characters")
+		}
+		user.FullName = fullName
 	}
-	user.FullName = fullName
 
 	oldAvatarKey := ""
 	if user.AvatarURL != nil && !isExternalAvatarURL(*user.AvatarURL) {
@@ -98,7 +109,16 @@ func (s *userService) UpdateProfile(ctx context.Context, userID uuid.UUID, input
 	if err := s.users.Update(ctx, user); err != nil {
 		return nil, apperror.NewInternalServerError("failed to update profile")
 	}
-	return dto.NewUserProfileResponse(user, s.resolveAvatarURL(ctx, user)), nil
+	avatarURL := s.resolveAvatarURL(ctx, user)
+	return &dto.UserProfileResponse{
+		ID:          user.ID.String(),
+		FullName:    user.FullName,
+		Email:       user.Email,
+		AvatarURL:   avatarURL,
+		HasPassword: user.PasswordHash != "",
+		HasGoogle:   user.GoogleID != nil && *user.GoogleID != "",
+		CreatedAt:   user.CreatedAt,
+	}, nil
 }
 
 func (s *userService) ChangePassword(ctx context.Context, userID uuid.UUID, req dto.ChangePasswordRequest) error {
@@ -147,7 +167,7 @@ func (s *userService) uploadAvatar(
 		return "", apperror.NewBadRequestError("avatar must be JPEG, PNG, or WebP")
 	}
 
-	objectKey := fmt.Sprintf("%s%s%s", avatarObjectPrefix, userID.String(), ext)
+	objectKey := fmt.Sprintf("%s%s_%d%s", avatarObjectPrefix, userID.String(), time.Now().Unix(), ext)
 	if err := s.store.Put(ctx, objectKey, reader, size, contentType); err != nil {
 		return "", apperror.NewInternalServerError("failed to store avatar")
 	}

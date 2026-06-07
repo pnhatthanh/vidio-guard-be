@@ -13,11 +13,11 @@ type ProgressEvent struct {
 	UserID          string                `json:"user_id"`
 	VideoID         string                `json:"video_id"`
 	Status          constants.VideoStatus `json:"status"`
-	Stage           string                `json:"stage"`
+	Stage           constants.VideoStage  `json:"stage"`
 	ProgressPercent int                   `json:"progress_percent"`
 }
 
-func NewProgressEvent(userID, videoID string, status constants.VideoStatus, stage string, percent int) ProgressEvent {
+func NewProgressEvent(userID, videoID string, status constants.VideoStatus, stage constants.VideoStage, percent int) ProgressEvent {
 	return ProgressEvent{
 		Type:            MessageTypeProgress,
 		UserID:          userID,

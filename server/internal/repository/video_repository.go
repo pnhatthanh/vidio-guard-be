@@ -15,13 +15,12 @@ import (
 type VideoRepository interface {
 	Create(ctx context.Context, video *model.Video) error
 	FindByID(ctx context.Context, id uuid.UUID) (*model.Video, error)
-	FindByIDAndUser(ctx context.Context, id, userID uuid.UUID) (*model.Video, error)
 	ListByUser(ctx context.Context, p model.VideoListParams) ([]model.VideoListRow, int64, error)
 	UpdateProgress(ctx context.Context, id uuid.UUID, status constants.VideoStatus, stage constants.VideoStage, percent int) error
 	UpdateDuration(ctx context.Context, id uuid.UUID, durationSec float64) error
 	MarkFailed(ctx context.Context, id uuid.UUID) error
 	MarkCompleted(ctx context.Context, id uuid.UUID) error
-	DeleteByIDAndUser(ctx context.Context, id, userID uuid.UUID) error
+	DeleteByID(ctx context.Context, id uuid.UUID) error
 }
 
 type videoRepository struct {
@@ -88,8 +87,8 @@ func (r *videoRepository) MarkCompleted(ctx context.Context, id uuid.UUID) error
 	}).Error
 }
 
-func (r *videoRepository) DeleteByIDAndUser(ctx context.Context, id, userID uuid.UUID) error {
-	return r.db.WithContext(ctx).Where("id = ? AND user_id = ?", id, userID).Delete(&model.Video{}).Error
+func (r *videoRepository) DeleteByID(ctx context.Context, id uuid.UUID) error {
+	return r.db.WithContext(ctx).Where("id = ?", id).Delete(&model.Video{}).Error
 }
 
 func (r *videoRepository) ListByUser(ctx context.Context, p model.VideoListParams) ([]model.VideoListRow, int64, error) {

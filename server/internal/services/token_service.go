@@ -2,8 +2,6 @@ package services
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"time"
@@ -12,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/pnhatthanh/vidio-guard-be/internal/config"
 	"github.com/pnhatthanh/vidio-guard-be/internal/pkg"
+	"github.com/pnhatthanh/vidio-guard-be/internal/utils"
 )
 
 const jwtBlacklistPrefix = "jwt:blacklist:"
@@ -58,7 +57,7 @@ func (s *tokenService) GenerateTokenPair(_ context.Context, userID uuid.UUID) (s
 		return "", "", err
 	}
 
-	refresh, err := newRefreshToken()
+	refresh, err := utils.GenerateRefreshToken()
 	if err != nil {
 		return "", "", err
 	}
@@ -102,12 +101,4 @@ func (s *tokenService) BlacklistToken(ctx context.Context, jti string, ttl time.
 
 func (s *tokenService) IsBlacklisted(ctx context.Context, jti string) (bool, error) {
 	return s.cache.IsExist(jwtBlacklistPrefix + jti)
-}
-
-func newRefreshToken() (string, error) {
-	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(b), nil
 }

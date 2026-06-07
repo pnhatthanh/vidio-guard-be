@@ -14,7 +14,6 @@ type ViolationSegment struct {
 	StartSec  float64                     `gorm:"column:start_sec;not null;index:idx_violation_segments_video_start,priority:2"`
 	EndSec    float64                     `gorm:"column:end_sec;not null"`
 	PeakScore float64                     `gorm:"column:peak_score;not null"`
-	Evidence  string                      `gorm:"column:evidence;type:text"`
 }
 
 func (ViolationSegment) TableName() string { return "violation_segments" }

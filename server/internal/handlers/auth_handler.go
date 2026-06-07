@@ -2,13 +2,12 @@ package handlers
 
 import (
 	"net/http"
-	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 	"github.com/pnhatthanh/vidio-guard-be/internal/apperror"
 	"github.com/pnhatthanh/vidio-guard-be/internal/dto"
 	"github.com/pnhatthanh/vidio-guard-be/internal/services"
+	"github.com/pnhatthanh/vidio-guard-be/internal/utils"
 )
 
 type AuthHandler interface {
@@ -105,27 +104,27 @@ func (h *authHandler) Logout() gin.HandlerFunc {
 			return
 		}
 
-		userID, ok := c.Get("userID")
-		if !ok {
+		userID, err := utils.GetCurrentUserID(c)
+		if err != nil {
 			c.Error(apperror.NewUnauthorizedError("unauthorized"))
 			return
 		}
-		jti, ok := c.Get("jti")
-		if !ok {
+		jti, err := utils.GetJTI(c)
+		if err != nil {
 			c.Error(apperror.NewUnauthorizedError("unauthorized"))
 			return
 		}
-		expiresAt, ok := c.Get("expiresAt")
-		if !ok {
+		expiresAt, err := utils.GetExpiresAt(c)
+		if err != nil {
 			c.Error(apperror.NewUnauthorizedError("unauthorized"))
 			return
 		}
 
 		if err := h.auth.Logout(
 			c.Request.Context(),
-			jti.(string),
-			userID.(uuid.UUID),
-			expiresAt.(time.Time),
+			jti,
+			userID,
+			expiresAt,
 			req.RefreshToken,
 		); err != nil {
 			c.Error(err)

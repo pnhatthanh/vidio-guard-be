@@ -144,12 +144,15 @@ func (s *videoService) Upload(
 }
 
 func (s *videoService) GetStatus(ctx context.Context, userID, videoID uuid.UUID) (*dto.VideoStatusResponse, error) {
-	video, err := s.videos.FindByIDAndUser(ctx, videoID, userID)
+	video, err := s.videos.FindByID(ctx, videoID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperror.NewNotFoundError("video not found")
 		}
 		return nil, apperror.NewInternalServerError("failed to load video")
+	}
+	if video.UserID != userID {
+		return nil, apperror.NewUnauthorizedError("access denied")
 	}
 
 	res := &dto.VideoStatusResponse{
@@ -170,14 +173,11 @@ func (s *videoService) GetStatus(ctx context.Context, userID, videoID uuid.UUID)
 				Verdict:           verdict.Verdict,
 				Violated:          verdict.Verdict != "safe",
 				RiskScore:         verdict.RiskScore,
-				FinalScore:        verdict.FinalScore,
 				FrameScore:        verdict.FrameScore,
 				AudioScore:        verdict.AudioScore,
 				TotalFrames:       verdict.TotalFrames,
-				VideoDurationSec:  verdict.VideoDurationSec,
 				HardRuleTriggered: verdict.HardRuleTriggered,
 				HardRuleReason:    verdict.HardRuleReason,
-				Transcript:        verdict.Transcript,
 			}
 		}
 		segments, err := s.violations.FindByVideoID(ctx, videoID)
@@ -190,7 +190,7 @@ func (s *videoService) GetStatus(ctx context.Context, userID, videoID uuid.UUID)
 }
 
 func (s *videoService) GetDownloadURL(ctx context.Context, userID, videoID uuid.UUID) (*dto.VideoDownloadResponse, error) {
-	video, err := s.videos.FindByIDAndUser(ctx, videoID, userID)
+	video, err := s.videos.FindByID(ctx, videoID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperror.NewNotFoundError("video not found")
@@ -219,12 +219,15 @@ func (s *videoService) Delete(ctx context.Context, userID, videoID uuid.UUID) er
 		return apperror.NewUnauthorizedError("authentication required")
 	}
 
-	video, err := s.videos.FindByIDAndUser(ctx, videoID, userID)
+	video, err := s.videos.FindByID(ctx, videoID)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return apperror.NewNotFoundError("video not found")
 		}
 		return apperror.NewInternalServerError("failed to load video")
+	}
+	if video.UserID != userID {
+		return apperror.NewUnauthorizedError("access denied")
 	}
 
 	if video.VideoURL != "" {
@@ -233,7 +236,7 @@ func (s *videoService) Delete(ctx context.Context, userID, videoID uuid.UUID) er
 		}
 	}
 
-	if err := s.videos.DeleteByIDAndUser(ctx, videoID, userID); err != nil {
+	if err := s.videos.DeleteByID(ctx, videoID); err != nil {
 		return apperror.NewInternalServerError("failed to delete video")
 	}
 	return nil

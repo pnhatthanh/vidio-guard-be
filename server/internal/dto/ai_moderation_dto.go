@@ -7,15 +7,6 @@ type FrameResult struct {
 	Scores     map[string]float64 `json:"scores"`
 }
 
-type PredictionResult struct {
-	VideoID      string        `json:"video_id"`
-	Total        int           `json:"total"`
-	FlaggedCount int           `json:"flagged_count"`
-	FlaggedEarly bool          `json:"flagged_early"`
-	OverallLabel string        `json:"overall_label"`
-	Predictions  []FrameResult `json:"predictions"`
-}
-
 type AudioSentence struct {
 	Text       string             `json:"text"`
 	Label      string             `json:"label"`
@@ -33,6 +24,40 @@ type AudioResult struct {
 	OverallLabel   string          `json:"overall_label"`
 	Sentences      []AudioSentence `json:"sentences"`
 }
+type PredictionResult struct {
+	VideoID      string        `json:"video_id"`
+	Total        int           `json:"total"`
+	FlaggedCount int           `json:"flagged_count"`
+	OverallLabel string        `json:"overall_label"`
+	Predictions  []FrameResult `json:"predictions"`
+}
+
+type AIImagePredictResponse struct {
+	Total       int           `json:"total"`
+	Predictions []FrameResult `json:"predictions"`
+}
+
+type AIAudioPredictResponse struct {
+	TotalSentences int             `json:"total_sentences"`
+	FlaggedCount   int             `json:"flagged_count"`
+	OverallLabel   string          `json:"overall_label"`
+	Sentences      []AudioSentence `json:"sentences"`
+}
+
+func (r *AIAudioPredictResponse) ToAudioResult(videoID string) *AudioResult {
+	if r == nil {
+		return nil
+	}
+	return &AudioResult{
+		VideoID:        videoID,
+		TotalSentences: r.TotalSentences,
+		FlaggedCount:   r.FlaggedCount,
+		OverallLabel:   r.OverallLabel,
+		Sentences:      r.Sentences,
+	}
+}
+
+
 
 func IsFlaggedFrameLabel(label string) bool {
 	return label == "nsfw" || label == "violence"

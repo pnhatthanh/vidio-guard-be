@@ -13,7 +13,7 @@ import (
 const (
 	visualFrameDurationSec = 1.0
 	visualMergeGapSec      = 1.0
-	audioMergeGapSec       = 0.5 
+	audioMergeGapSec       = 0.5
 	maxEvidenceLen         = 200
 )
 
@@ -35,7 +35,6 @@ func buildViolationSegments(videoID uuid.UUID, frames *dto.PredictionResult, aud
 			StartSec:  seg.startSec,
 			EndSec:    seg.endSec,
 			PeakScore: seg.peakScore,
-			Evidence:  seg.evidence,
 		})
 	}
 	for _, seg := range buildAudioViolationSegments(audio) {
@@ -46,7 +45,6 @@ func buildViolationSegments(videoID uuid.UUID, frames *dto.PredictionResult, aud
 			StartSec:  seg.startSec,
 			EndSec:    seg.endSec,
 			PeakScore: seg.peakScore,
-			Evidence:  seg.evidence,
 		})
 	}
 	return out
@@ -200,7 +198,6 @@ func mapViolationSegmentsToDTO(rows []model.ViolationSegment) []dto.ViolationSeg
 			StartSec:  r.StartSec,
 			EndSec:    r.EndSec,
 			PeakScore: r.PeakScore,
-			Evidence:  r.Evidence,
 		}
 	}
 	return out

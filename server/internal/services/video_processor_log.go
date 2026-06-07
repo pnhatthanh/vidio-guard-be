@@ -12,9 +12,6 @@ func logPredictionResult(r *dto.PredictionResult) {
 	}
 
 	earlyStr := ""
-	if r.FlaggedEarly {
-		earlyStr = " (EARLY EXIT)"
-	}
 	log.Printf("[ai_result] ============================================================")
 	log.Printf("[ai_result] Video          : %s", r.VideoID)
 	log.Printf("[ai_result] Frames checked : %d  |  Flagged: %d%s", r.Total, r.FlaggedCount, earlyStr)

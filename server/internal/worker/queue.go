@@ -1,11 +1,10 @@
-package queue
+package worker
 
 import (
 	"fmt"
 	"time"
 
 	"github.com/hibiken/asynq"
-	"github.com/pnhatthanh/vidio-guard-be/internal/worker"
 )
 
 type Enqueuer interface {
@@ -19,7 +18,7 @@ type asynqEnqueuer struct {
 	taskTimeout time.Duration
 }
 
-func NewAsynqEnqueuer(client *asynq.Client, queue string, maxRetry int, taskTimeout time.Duration) *asynqEnqueuer {
+func NewAsynqEnqueuer(client *asynq.Client, queue string, maxRetry int, taskTimeout time.Duration) Enqueuer {
 	return &asynqEnqueuer{
 		client:      client,
 		queue:       queue,
@@ -36,7 +35,7 @@ func (e *asynqEnqueuer) EnqueueVideoProcess(videoID, objectKey string) error {
 		return fmt.Errorf("objectKey is required")
 	}
 
-	t, err := worker.NewVideoProcessTask(videoID, objectKey)
+	t, err := NewVideoProcessTask(videoID, objectKey)
 	if err != nil {
 		return err
 	}

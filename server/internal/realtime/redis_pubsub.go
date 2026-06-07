@@ -15,10 +15,9 @@ type RedisPubSub struct {
 	channel string
 }
 
-func NewRedisPubSub(addr, password string, db int, channel string) (*RedisPubSub, error) {
-	if channel == "" {
-		channel = DefaultProgressChannel
-	}
+func NewRedisPubSub(addr, password string, db int) (*RedisPubSub, error) {
+	channel := DefaultProgressChannel
+
 	client := redis.NewClient(&redis.Options{
 		Addr:     addr,
 		Password: password,

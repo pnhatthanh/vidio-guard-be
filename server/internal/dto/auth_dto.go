@@ -40,6 +40,8 @@ type ResetPasswordRequest struct {
 	ConfirmNewPassword string `json:"confirm_new_password" binding:"required,eqfield=NewPassword"`
 }
 
+
+
 type MessageResponse struct {
 	Message string `json:"message"`
 }

@@ -10,20 +10,19 @@ import (
 )
 
 type MinioConfig struct {
-	Endpoint         string
-	PublicEndpoint   string // browser-facing host for presigned URLs (e.g. http://localhost:9000)
-	AccessKey        string
-	SecretKey        string
-	Bucket           string
-	UseSSL           bool
-	PresignURLTTL    time.Duration
+	Endpoint       string
+	PublicEndpoint string
+	AccessKey      string
+	SecretKey      string
+	Bucket         string
+	UseSSL         bool
+	PresignURLTTL  time.Duration
 }
 
 type RedisConfig struct {
-	Addr            string
-	Password        string
-	DB              int
-	ProgressChannel string
+	Addr     string
+	Password string
+	DB       int
 }
 
 type AsynqConfig struct {
@@ -33,22 +32,21 @@ type AsynqConfig struct {
 	TaskTimeout time.Duration
 }
 
-type StatusConfig struct {
-	KeyPrefix string
-	TTL       time.Duration
-}
-
 type ServerConfig struct {
-	Addr string
+	Addr      string
+	OutputDir string
 }
 
 type PostgresConfig struct {
-	DSN string 
+	DSN             string
+	MaxIdleConns    int
+	MaxOpenConns    int
+	ConnMaxLifetime time.Duration
 }
 
 type JWTConfig struct {
 	AccessSecret string
-	AccessTTL    time.Duration 
+	AccessTTL    time.Duration
 	RefreshTTL   time.Duration
 }
 
@@ -66,7 +64,7 @@ type SMTPConfig struct {
 }
 
 type PasswordResetConfig struct {
-	ResetPageURL string // FE page, e.g. https://app.example.com/reset-password
+	ResetPageURL string
 	OTPTTL       time.Duration
 	CooldownTTL  time.Duration
 	MaxAttempts  int
@@ -83,7 +81,6 @@ type AIServiceConfig struct {
 	AudioTaskTimeout  time.Duration
 }
 
-// ModerationConfig controls risk scoring, fusion weights, and hard rules.
 type ModerationConfig struct {
 	FrameWeight            float64
 	AudioWeight            float64
@@ -100,21 +97,19 @@ type ModerationConfig struct {
 }
 
 type Config struct {
-	Server    ServerConfig
-	OutputDir string
+	Server ServerConfig
 
 	Postgres PostgresConfig
 	JWT      JWTConfig
 	Google   GoogleConfig
 
-	Minio     MinioConfig
-	Redis     RedisConfig
-	Asynq     AsynqConfig
-	Status    StatusConfig
-	AIService      AIServiceConfig
-	Moderation     ModerationConfig
-	SMTP           SMTPConfig
-	PasswordReset  PasswordResetConfig
+	Minio         MinioConfig
+	Redis         RedisConfig
+	Asynq         AsynqConfig
+	AIService     AIServiceConfig
+	Moderation    ModerationConfig
+	SMTP          SMTPConfig
+	PasswordReset PasswordResetConfig
 }
 
 func Load() (*Config, error) {
@@ -125,12 +120,15 @@ func Load() (*Config, error) {
 
 	cfg := &Config{
 		Server: ServerConfig{
-			Addr: getenv("HTTP_ADDR", ":8080"),
+			Addr:      getenv("HTTP_ADDR", ":8080"),
+			OutputDir: getenv("OUTPUT_DIR", "outputs"),
 		},
-		OutputDir: getenv("OUTPUT_DIR", "outputs"),
 
 		Postgres: PostgresConfig{
-			DSN: getenv("POSTGRES_DSN", "postgres://postgres:postgres@postgres:5432/vidioguard?sslmode=disable"),
+			DSN:             getenv("POSTGRES_DSN", "postgres://postgres:postgres@postgres:5432/vidioguard?sslmode=disable"),
+			MaxIdleConns:    getenvInt("POSTGRES_MAX_IDLE_CONNS", 10),
+			MaxOpenConns:    getenvInt("POSTGRES_MAX_OPEN_CONNS", 100),
+			ConnMaxLifetime: getenvDuration("POSTGRES_CONN_MAX_LIFETIME", time.Hour),
 		},
 		JWT: JWTConfig{
 			AccessSecret: getenv("JWT_ACCESS_SECRET", "your-access-secret-change-me"),
@@ -151,20 +149,15 @@ func Load() (*Config, error) {
 			PresignURLTTL:  getenvDuration("MINIO_PRESIGN_TTL", time.Hour),
 		},
 		Redis: RedisConfig{
-			Addr:            getenv("REDIS_ADDR", "redis:6379"),
-			Password:        getenv("REDIS_PASSWORD", ""),
-			DB:              getenvInt("REDIS_DB", 0),
-			ProgressChannel: getenv("REDIS_PROGRESS_CHANNEL", "videoguard:video:progress"),
+			Addr:     getenv("REDIS_ADDR", "redis:6379"),
+			Password: getenv("REDIS_PASSWORD", ""),
+			DB:       getenvInt("REDIS_DB", 0),
 		},
 		Asynq: AsynqConfig{
 			Queue:       getenv("ASYNQ_QUEUE", "video"),
 			Concurrency: getenvInt("ASYNQ_CONCURRENCY", concurrency),
 			MaxRetry:    getenvInt("ASYNQ_MAX_RETRY", 10),
 			TaskTimeout: getenvDuration("ASYNQ_TASK_TIMEOUT", 30*time.Minute),
-		},
-		Status: StatusConfig{
-			KeyPrefix: getenv("STATUS_KEY_PREFIX", "status:"),
-			TTL:       getenvDuration("STATUS_TTL", 24*time.Hour),
 		},
 		AIService: AIServiceConfig{
 			FrameModeratorUrl: getenv("AI_FRAME_MODERATOR_URL", "http://image-moderation:8000"),
@@ -176,18 +169,18 @@ func Load() (*Config, error) {
 			AudioTaskTimeout:  getenvDuration("AI_AUDIO_TASK_TIMEOUT", 20*time.Minute),
 		},
 		Moderation: ModerationConfig{
-			FrameWeight:        getenvFloat("MOD_FRAME_WEIGHT", 0.7),
-			AudioWeight:        getenvFloat("MOD_AUDIO_WEIGHT", 0.3),
-			SafeThreshold:      getenvFloat("MOD_SAFE_THRESHOLD", 0.3),
-			ViolationThreshold: getenvFloat("MOD_VIOLATION_THRESHOLD", 0.6),
-			MaxLabelWeight:     getenvFloat("MOD_MAX_LABEL_WEIGHT", 5),
-			HardNsfwConfidence: getenvFloat("MOD_HARD_NSFW_CONF", 0.98),
-			HardNsfwSec:        getenvFloat("MOD_HARD_NSFW_SEC", 5),
+			FrameWeight:            getenvFloat("MOD_FRAME_WEIGHT", 0.7),
+			AudioWeight:            getenvFloat("MOD_AUDIO_WEIGHT", 0.3),
+			SafeThreshold:          getenvFloat("MOD_SAFE_THRESHOLD", 0.3),
+			ViolationThreshold:     getenvFloat("MOD_VIOLATION_THRESHOLD", 0.6),
+			MaxLabelWeight:         getenvFloat("MOD_MAX_LABEL_WEIGHT", 5),
+			HardNsfwConfidence:     getenvFloat("MOD_HARD_NSFW_CONF", 0.90),
+			HardNsfwSec:            getenvFloat("MOD_HARD_NSFW_SEC", 5),
 			HardViolenceFrames:     getenvInt("MOD_HARD_VIOLENCE_FRAMES", 10),
 			HardToxicSec:           getenvFloat("MOD_HARD_TOXIC_SEC", 15),
 			HardToxicCoverageRatio: getenvFloat("MOD_HARD_TOXIC_COVERAGE", 0.15),
 			HardToxicSegmentCount:  getenvInt("MOD_HARD_TOXIC_SEGMENTS", 8),
-			HardToxicTotalSec:      getenvFloat("MOD_HARD_TOXIC_TOTAL_SEC", 45),
+			HardToxicTotalSec:      getenvFloat("MOD_HARD_TOXIC_TOTAL_SEC", 30),
 		},
 		SMTP: SMTPConfig{
 			Host:     strings.TrimSpace(getenv("SMTP_HOST", "")),
@@ -214,12 +207,6 @@ func Load() (*Config, error) {
 	}
 	if cfg.Asynq.Queue == "" {
 		return &Config{}, fmt.Errorf("ASYNQ_QUEUE is required")
-	}
-	if cfg.Status.KeyPrefix == "" {
-		return &Config{}, fmt.Errorf("STATUS_KEY_PREFIX is required")
-	}
-	if cfg.Status.TTL <= 0 {
-		return &Config{}, fmt.Errorf("STATUS_TTL must be > 0")
 	}
 	if cfg.JWT.AccessTTL <= 0 {
 		return &Config{}, fmt.Errorf("JWT_ACCESS_TTL must be > 0")

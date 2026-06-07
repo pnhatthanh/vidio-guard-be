@@ -15,23 +15,6 @@ type PasswordResetEmail struct {
 	ResetURL  string
 }
 
-// BuildResetPasswordURL returns {base}?email=...&otp=... (query values URL-encoded).
-func BuildResetPasswordURL(baseURL, email, otp string) string {
-	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
-	if baseURL == "" {
-		return ""
-	}
-	u, err := url.Parse(baseURL)
-	if err != nil {
-		return ""
-	}
-	q := u.Query()
-	q.Set("email", email)
-	q.Set("otp", otp)
-	u.RawQuery = q.Encode()
-	return u.String()
-}
-
 func BuildPasswordResetEmail(fullName, email, otp, resetPageURL string, validFor time.Duration) PasswordResetEmail {
 	name := strings.TrimSpace(fullName)
 	if name == "" {
@@ -42,7 +25,7 @@ func BuildPasswordResetEmail(fullName, email, otp, resetPageURL string, validFor
 		minutes = 15
 	}
 
-	resetURL := BuildResetPasswordURL(resetPageURL, email, otp)
+	resetURL := buildResetPasswordURL(resetPageURL, email, otp)
 	escapedName := html.EscapeString(name)
 	escapedOTP := html.EscapeString(otp)
 	escapedURL := html.EscapeString(resetURL)
@@ -144,4 +127,21 @@ func BuildPasswordResetEmail(fullName, email, otp, resetPageURL string, validFor
 		PlainText: plain,
 		ResetURL:  resetURL,
 	}
+}
+
+// buildResetPasswordURL returns {base}?email=...&otp=... (query values URL-encoded).
+func buildResetPasswordURL(baseURL, email, otp string) string {
+	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if baseURL == "" {
+		return ""
+	}
+	u, err := url.Parse(baseURL)
+	if err != nil {
+		return ""
+	}
+	q := u.Query()
+	q.Set("email", email)
+	q.Set("otp", otp)
+	u.RawQuery = q.Encode()
+	return u.String()
 }
