@@ -84,6 +84,8 @@ func (s *videoProcessingService) Process(ctx context.Context, videoID uuid.UUID,
 		return err
 	}
 
+	s.cleanupVideoOutput(videoID)
+
 	return s.progress.MarkCompleted(ctx, videoID)
 }
 
@@ -127,10 +129,7 @@ func (s *videoProcessingService) persistResults(ctx context.Context, videoID uui
 	_ = s.verdicts.DeleteByVideoID(ctx, videoID)
 	_ = s.violations.DeleteByVideoID(ctx, videoID)
 
-	durationSec := 0.0
-	if video, err := s.videos.FindByID(ctx, videoID); err == nil && video.DurationSeconds != nil {
-		durationSec = float64(*video.DurationSeconds)
-	}
+	durationSec := output.FrameManifest.VideoDurationSec
 
 	verdict := buildFinalVerdict(videoID, output.Frames, output.Audio, durationSec, s.scorer)
 	if err := s.verdicts.Create(ctx, verdict); err != nil {
@@ -147,4 +146,13 @@ func (s *videoProcessingService) persistResults(ctx context.Context, videoID uui
 		len(segments), verdict.HardRuleTriggered)
 
 	return nil
+}
+
+func (s *videoProcessingService) cleanupVideoOutput(videoID uuid.UUID) {
+	dir := filepath.Join(s.tempDir, videoID.String())
+	if err := os.RemoveAll(dir); err != nil {
+		log.Printf("[processing] video=%s: cleanup output dir %s: %v", videoID, dir, err)
+		return
+	}
+	log.Printf("[processing] video=%s: removed output dir %s", videoID, dir)
 }

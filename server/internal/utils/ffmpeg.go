@@ -1,11 +1,13 @@
 package utils
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"log"
 	"os"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -96,4 +98,42 @@ func GetVideoFPS(path string) (float64, error) {
 	}
 
 	return num / den, nil
+}
+
+var showinfoPTSTimeRE = regexp.MustCompile(`pts_time:([0-9.]+)`)
+
+// RunFFmpegCaptureStderr runs ffmpeg and returns combined stderr output.
+func RunFFmpegCaptureStderr(args []string) (string, error) {
+	cmdLine := "ffmpeg " + strings.Join(args, " ")
+	log.Printf("[ffmpeg] running: %s", cmdLine)
+
+	var stderr bytes.Buffer
+	cmd := exec.Command("ffmpeg", args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		log.Printf("[ffmpeg] command failed: %v", err)
+		return stderr.String(), err
+	}
+	return stderr.String(), nil
+}
+
+// ParseShowinfoPTSTimes extracts pts_time values from ffmpeg showinfo stderr lines.
+func ParseShowinfoPTSTimes(stderr string) []float64 {
+	var times []float64
+	for _, line := range strings.Split(stderr, "\n") {
+		if !strings.Contains(line, "Parsed_showinfo") {
+			continue
+		}
+		m := showinfoPTSTimeRE.FindStringSubmatch(line)
+		if len(m) < 2 {
+			continue
+		}
+		t, err := strconv.ParseFloat(m[1], 64)
+		if err != nil {
+			continue
+		}
+		times = append(times, t)
+	}
+	return times
 }

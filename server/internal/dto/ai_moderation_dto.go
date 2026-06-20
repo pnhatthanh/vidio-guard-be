@@ -1,10 +1,11 @@
 package dto
 
 type FrameResult struct {
-	Frame      string             `json:"frame"`
-	Label      string             `json:"label"`
-	Confidence float64            `json:"confidence"`
-	Scores     map[string]float64 `json:"scores"`
+	Frame         string             `json:"frame"`
+	Label         string             `json:"label"`
+	Confidence    float64            `json:"confidence"`
+	Scores        map[string]float64 `json:"scores"`
+	TimestampSec  float64            `json:"timestamp_sec,omitempty"`
 }
 
 type AudioSentence struct {
@@ -29,6 +30,7 @@ type PredictionResult struct {
 	Total        int           `json:"total"`
 	FlaggedCount int           `json:"flagged_count"`
 	OverallLabel string        `json:"overall_label"`
+	TargetFPS    int           `json:"target_fps,omitempty"`
 	Predictions  []FrameResult `json:"predictions"`
 }
 

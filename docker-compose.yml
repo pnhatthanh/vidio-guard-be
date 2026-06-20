@@ -21,36 +21,9 @@ services:
         condition: service_healthy
       postgres:
         condition: service_healthy
-      # image-moderation:
-      #   condition: service_healthy
     networks:
       - video-network
     restart: unless-stopped
-
-  # image-moderation:
-  #   build:
-  #     context: ./image-moderation
-  #     dockerfile: Dockerfile
-  #   container_name: image-moderation
-  #   ports:
-  #     - "8000:8000"
-  #   env_file:
-  #     - ./image-moderation/.env
-  #   volumes:
-  #     - ./image-moderation/models:/app/models:ro
-  #   networks:
-  #     - video-network
-  #   restart: unless-stopped
-  #   healthcheck:
-  #     test:
-  #       [
-  #         "CMD-SHELL",
-  #         "python -c \"import urllib.request; r=urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5); exit(0 if r.status==200 else 1)\"",
-  #       ]
-  #     interval: 10s
-  #     timeout: 10s
-  #     retries: 12
-  #     start_period: 120s
 
   redis:
     image: redis:7-alpine

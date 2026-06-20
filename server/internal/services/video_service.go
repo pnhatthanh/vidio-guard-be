@@ -176,6 +176,7 @@ func (s *videoService) GetStatus(ctx context.Context, userID, videoID uuid.UUID)
 				FrameScore:        verdict.FrameScore,
 				AudioScore:        verdict.AudioScore,
 				TotalFrames:       verdict.TotalFrames,
+				VideoDurationSec:  verdict.VideoDurationSec,
 				HardRuleTriggered: verdict.HardRuleTriggered,
 				HardRuleReason:    verdict.HardRuleReason,
 			}

@@ -10,12 +10,7 @@ import (
 	"github.com/pnhatthanh/vidio-guard-be/internal/model"
 )
 
-const (
-	visualFrameDurationSec = 1.0
-	visualMergeGapSec      = 1.0
-	audioMergeGapSec       = 0.5
-	maxEvidenceLen         = 200
-)
+const maxEvidenceLen = 200
 
 type interval struct {
 	category  constants.ViolationCategory
@@ -55,30 +50,32 @@ func buildVisualViolationSegments(frames *dto.PredictionResult) []interval {
 		return nil
 	}
 
-	points := make([]interval, 0)
-	for _, p := range frames.Predictions {
-		if !dto.IsFlaggedFrameLabel(p.Label) {
+	targetFPS := float64(frames.TargetFPS)
+	if targetFPS <= 0 {
+		targetFPS = 10
+	}
+	events := BuildVisualEvents(frames.Predictions, targetFPS)
+	gap := 1.0
+
+	var points []interval
+	for _, label := range []string{labelNsfw, labelViolence} {
+		if !dto.IsFlaggedFrameLabel(label) {
 			continue
 		}
-		num := parseFrameNumber(p.Frame)
-		ts := float64(num - 1)
-		if ts < 0 {
-			ts = 0
+		merged := MergeVisualIntervals(events, label, gap, 0)
+		for _, iv := range merged {
+			peak := iv.PeakConf
+			points = append(points, interval{
+				category:  frameLabelToViolationCategory(label),
+				startSec:  iv.StartSec,
+				endSec:    iv.EndSec,
+				peakScore: peak,
+				evidence:  iv.Evidence,
+			})
 		}
-		peak := score(p.Scores, p.Label)
-		if peak == 0 {
-			peak = p.Confidence
-		}
-		points = append(points, interval{
-			category:  frameLabelToViolationCategory(p.Label),
-			startSec:  ts,
-			endSec:    ts + visualFrameDurationSec,
-			peakScore: peak,
-			evidence:  p.Frame,
-		})
 	}
 
-	return mergeIntervals(points, visualMergeGapSec)
+	return mergeIntervals(points, gap)
 }
 
 func buildAudioViolationSegments(audio *dto.AudioResult) []interval {
@@ -124,12 +121,9 @@ func mergeIntervals(points []interval, gapSec float64) []interval {
 	for i := 1; i < len(sorted); i++ {
 		cur := sorted[i]
 		last := &merged[len(merged)-1]
-		if cur.startSec <= last.endSec+gapSec {
+		if cur.startSec <= last.endSec+gapSec && cur.category == last.category {
 			if cur.endSec > last.endSec {
 				last.endSec = cur.endSec
-			}
-			if categoryPriority(cur.category) > categoryPriority(last.category) {
-				last.category = cur.category
 			}
 			if cur.peakScore > last.peakScore {
 				last.peakScore = cur.peakScore
@@ -149,28 +143,6 @@ func sortIntervals(points []interval) {
 				points[i], points[j] = points[j], points[i]
 			}
 		}
-	}
-}
-
-func frameLabelToViolationCategory(label string) constants.ViolationCategory {
-	switch label {
-	case "nsfw":
-		return constants.CategoryNudity
-	case "violence":
-		return constants.CategoryViolence
-	default:
-		return constants.ViolationCategory(label)
-	}
-}
-
-func categoryPriority(category constants.ViolationCategory) int {
-	switch category {
-	case constants.CategoryNudity:
-		return 2
-	case constants.CategoryViolence:
-		return 1
-	default:
-		return 0
 	}
 }
 

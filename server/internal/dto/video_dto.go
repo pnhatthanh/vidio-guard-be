@@ -23,8 +23,9 @@ type UploadVideoResponse struct {
 }
 
 type ProcessingOutput struct {
-	Frames *PredictionResult
-	Audio  *AudioResult
+	Frames        *PredictionResult
+	Audio         *AudioResult
+	FrameManifest *FrameManifest
 }
 
 type VideoStatusResponse struct {
@@ -53,7 +54,6 @@ type VideoVerdictSummary struct {
 	Verdict           string  `json:"verdict"`
 	Violated          bool    `json:"violated"`
 	RiskScore         float64 `json:"risk_score"`
-	FinalScore        float64 `json:"final_score"`
 	FrameScore        float64 `json:"frame_score"`
 	AudioScore        float64 `json:"audio_score"`
 	TotalFrames       int     `json:"total_frames"`

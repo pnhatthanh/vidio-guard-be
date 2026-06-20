@@ -87,13 +87,20 @@ type ModerationConfig struct {
 	SafeThreshold          float64
 	ViolationThreshold     float64
 	MaxLabelWeight         float64
+	HardRuleFloorScore     float64
 	HardNsfwConfidence     float64
 	HardNsfwSec            float64
-	HardViolenceFrames     int
+	HardViolenceSec        float64
+	HardViolenceConfidence float64
+	HardViolenceBurstCount int
+	HardViolenceBurstConf  float64
+	VisualMergeGapSec      float64
+	VisualPeakWindowSec    float64
+	AudioPeakWindowSec     float64
 	HardToxicSec           float64
-	HardToxicCoverageRatio float64 // total toxic time / video duration → violation
-	HardToxicSegmentCount  int     // flagged sentences count → violation
-	HardToxicTotalSec      float64 // merged toxic duration → violation
+	HardToxicCoverageRatio float64
+	HardToxicSegmentCount  int
+	HardToxicTotalSec      float64
 }
 
 type Config struct {
@@ -169,18 +176,25 @@ func Load() (*Config, error) {
 			AudioTaskTimeout:  getenvDuration("AI_AUDIO_TASK_TIMEOUT", 20*time.Minute),
 		},
 		Moderation: ModerationConfig{
-			FrameWeight:            getenvFloat("MOD_FRAME_WEIGHT", 0.7),
-			AudioWeight:            getenvFloat("MOD_AUDIO_WEIGHT", 0.3),
-			SafeThreshold:          getenvFloat("MOD_SAFE_THRESHOLD", 0.3),
-			ViolationThreshold:     getenvFloat("MOD_VIOLATION_THRESHOLD", 0.6),
-			MaxLabelWeight:         getenvFloat("MOD_MAX_LABEL_WEIGHT", 5),
-			HardNsfwConfidence:     getenvFloat("MOD_HARD_NSFW_CONF", 0.90),
-			HardNsfwSec:            getenvFloat("MOD_HARD_NSFW_SEC", 5),
-			HardViolenceFrames:     getenvInt("MOD_HARD_VIOLENCE_FRAMES", 10),
-			HardToxicSec:           getenvFloat("MOD_HARD_TOXIC_SEC", 15),
-			HardToxicCoverageRatio: getenvFloat("MOD_HARD_TOXIC_COVERAGE", 0.15),
-			HardToxicSegmentCount:  getenvInt("MOD_HARD_TOXIC_SEGMENTS", 8),
-			HardToxicTotalSec:      getenvFloat("MOD_HARD_TOXIC_TOTAL_SEC", 30),
+			FrameWeight:              getenvFloat("MOD_FRAME_WEIGHT", 0.7),
+			AudioWeight:                getenvFloat("MOD_AUDIO_WEIGHT", 0.3),
+			SafeThreshold:              getenvFloat("MOD_SAFE_THRESHOLD", 0.25),
+			ViolationThreshold:         getenvFloat("MOD_VIOLATION_THRESHOLD", 0.55),
+			MaxLabelWeight:             getenvFloat("MOD_MAX_LABEL_WEIGHT", 5),
+			HardRuleFloorScore:         getenvFloat("MOD_HARD_RULE_FLOOR", 0.85),
+			HardNsfwConfidence:         getenvFloat("MOD_HARD_NSFW_CONF", 0.90),
+			HardNsfwSec:                 getenvFloat("MOD_HARD_NSFW_SEC", 5),
+			HardViolenceSec:            getenvFloat("MOD_HARD_VIOLENCE_SEC", 2.0),
+			HardViolenceConfidence:     getenvFloat("MOD_HARD_VIOLENCE_CONF", 0.85),
+			HardViolenceBurstCount:     getenvInt("MOD_HARD_VIOLENCE_BURST_COUNT", 3),
+			HardViolenceBurstConf:      getenvFloat("MOD_HARD_VIOLENCE_BURST_CONF", 0.80),
+			VisualMergeGapSec:          getenvFloat("MOD_VISUAL_MERGE_GAP_SEC", 1.0),
+			VisualPeakWindowSec:        getenvFloat("MOD_VISUAL_PEAK_WINDOW_SEC", 3.0),
+			AudioPeakWindowSec:         getenvFloat("MOD_AUDIO_PEAK_WINDOW_SEC", 10.0),
+			HardToxicSec:               getenvFloat("MOD_HARD_TOXIC_SEC", 15),
+			HardToxicCoverageRatio:     getenvFloat("MOD_HARD_TOXIC_COVERAGE", 0.15),
+			HardToxicSegmentCount:      getenvInt("MOD_HARD_TOXIC_SEGMENTS", 8),
+			HardToxicTotalSec:          getenvFloat("MOD_HARD_TOXIC_TOTAL_SEC", 30),
 		},
 		SMTP: SMTPConfig{
 			Host:     strings.TrimSpace(getenv("SMTP_HOST", "")),

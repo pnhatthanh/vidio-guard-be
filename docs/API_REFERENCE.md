@@ -815,7 +815,6 @@ Authorization: Bearer <access_token>
     "verdict": "violation",
     "violated": true,
     "risk_score": 0.72,
-    "final_score": 0.72,
     "frame_score": 0.65,
     "audio_score": 0.88,
     "total_frames": 113,
@@ -861,7 +860,6 @@ Authorization: Bearer <access_token>
     "verdict": "safe",
     "violated": false,
     "risk_score": 0.05,
-    "final_score": 0.05,
     "frame_score": 0.04,
     "audio_score": 0.08,
     "total_frames": 100,
@@ -908,33 +906,32 @@ Authorization: Bearer <access_token>
 |-------|------|-------|
 | `verdict` | string | `safe` \| `warning` \| `violation` |
 | `violated` | boolean | `verdict != "safe"` (gồm cả `warning`) |
-| `risk_score` | float | Alias của `final_score` (0.0–1.0) |
-| `final_score` | float | `max(α×frame + β×audio, audio_score)` — không bị pha loãng bởi video dài |
-| `frame_score` | float | Điểm visual (0–1), trung bình weighted trên tất cả frame |
-| `audio_score` | float | `max(coverage×conf, density)` — coverage = tỷ lệ giây toxic / duration |
+| `risk_score` | float | `max(α×frame + β×audio, audio_score)` (0.0–1.0) |
+| `frame_score` | float | `max(coverage_nsfw, coverage_violence, peak_window)` — theo giây thật (PTS) |
+| `audio_score` | float | `max(coverage×conf, peak_window_10s)` |
 | `total_frames` | int | Số frame đã phân tích |
-| `video_duration_sec` | float | Duration dùng normalize audio |
+| `video_duration_sec` | float | Thời lượng video (ffprobe) |
 | `hard_rule_triggered` | boolean | Có kích hoạt rule cứng |
 | `hard_rule_reason` | string | Mã rule (xem bảng dưới); rỗng nếu không trigger |
-| `transcript` | string | Toàn bộ lời thoại Whisper (có thể rỗng) |
 
-**Ngưỡng verdict theo `final_score` (mặc định):**
+**Ngưỡng verdict theo `risk_score` (mặc định):**
 
-| `final_score` | `verdict` | `violated` |
+| `risk_score` | `verdict` | `violated` |
 |---------------|-----------|------------|
-| `< 0.3` | `safe` | `false` |
-| `0.3 – 0.6` | `warning` | `true` |
-| `≥ 0.6` | `violation` | `true` |
+| `< 0.25` | `safe` | `false` |
+| `0.25 – 0.55` | `warning` | `true` |
+| `≥ 0.55` | `violation` | `true` |
 
-**Hard rules (bypass ngưỡng → luôn `violation`):**
+**Hard rules (bypass ngưỡng → luôn `violation`, `risk_score` ≥ 0.85):**
 
 | `hard_rule_reason` | Điều kiện (mặc định) |
 |--------------------|----------------------|
-| `nsfw_sustained_5s` | Frame `nsfw`, conf ≥ 0.98, liên tục ≥ 5s |
-| `violence_consecutive_frames` | ≥ 10 frame `violence` liên tiếp |
-| `toxic_sustained_15s` | Audio toxic liên tục ≥ 15s (gap merge 0.5s) |
+| `nsfw_sustained` | Frame `nsfw`, conf ≥ 0.90, merged span ≥ 5s (PTS) |
+| `violence_sustained` | Frame `violence`, conf ≥ 0.85, merged span ≥ 2s |
+| `violence_burst` | ≥ 3 frame `violence` trong 3s, conf TB ≥ 0.80 |
+| `toxic_sustained` | Audio toxic liên tục ≥ 15s (gap merge 0.5s) |
 | `toxic_many_segments` | ≥ 8 câu `Toxic`, conf trung bình ≥ 0.85 |
-| `toxic_total_duration` | Tổng giây toxic (merged) ≥ 45s |
+| `toxic_total_duration` | Tổng giây toxic (merged) ≥ 30s |
 | `toxic_coverage_ratio` | Toxic chiếm ≥ 15% thời lượng video |
 
 > Video đã xử lý trước khi đổi logic cần **upload/xử lý lại** để cập nhật verdict trong DB.
@@ -1173,16 +1170,23 @@ Server gửi WebSocket ping định kỳ; client cần trả pong (browser tự 
 |------|----------|--------|
 | `MOD_FRAME_WEIGHT` | `0.7` | Trọng số visual trong fusion |
 | `MOD_AUDIO_WEIGHT` | `0.3` | Trọng số audio trong fusion |
-| `MOD_SAFE_THRESHOLD` | `0.3` | Dưới ngưỡng → `safe` |
-| `MOD_VIOLATION_THRESHOLD` | `0.6` | Từ ngưỡng → `violation` |
-| `MOD_MAX_LABEL_WEIGHT` | `5` | Chuẩn hóa điểm (violence = 5) |
-| `MOD_HARD_NSFW_CONF` | `0.98` | Hard rule NSFW |
-| `MOD_HARD_NSFW_SEC` | `5` | Giây NSFW liên tục |
-| `MOD_HARD_VIOLENCE_FRAMES` | `10` | Frame violence liên tiếp |
+| `MOD_SAFE_THRESHOLD` | `0.25` | Dưới ngưỡng → `safe` |
+| `MOD_VIOLATION_THRESHOLD` | `0.55` | Từ ngưỡng → `violation` |
+| `MOD_MAX_LABEL_WEIGHT` | `5` | Chuẩn hóa peak window |
+| `MOD_HARD_RULE_FLOOR` | `0.85` | Floor `risk_score` khi hard rule |
+| `MOD_HARD_NSFW_CONF` | `0.90` | Hard rule NSFW |
+| `MOD_HARD_NSFW_SEC` | `5` | Giây NSFW merged (PTS) |
+| `MOD_HARD_VIOLENCE_SEC` | `2.0` | Giây violence merged |
+| `MOD_HARD_VIOLENCE_CONF` | `0.85` | Conf violence sustained |
+| `MOD_HARD_VIOLENCE_BURST_COUNT` | `3` | Burst violence |
+| `MOD_HARD_VIOLENCE_BURST_CONF` | `0.80` | Conf burst |
+| `MOD_VISUAL_MERGE_GAP_SEC` | `0.5` | Merge gap visual |
+| `MOD_VISUAL_PEAK_WINDOW_SEC` | `3.0` | Peak window visual |
+| `MOD_AUDIO_PEAK_WINDOW_SEC` | `10.0` | Peak window audio |
 | `MOD_HARD_TOXIC_SEC` | `15` | Giây toxic liên tục |
 | `MOD_HARD_TOXIC_COVERAGE` | `0.15` | Tỷ lệ thời lượng toxic |
 | `MOD_HARD_TOXIC_SEGMENTS` | `8` | Số câu toxic |
-| `MOD_HARD_TOXIC_TOTAL_SEC` | `45` | Tổng giây toxic merged |
+| `MOD_HARD_TOXIC_TOTAL_SEC` | `30` | Tổng giây toxic merged |
 | `MINIO_ENDPOINT` | `minio:9000` | Upload/download trong Docker network |
 | `MINIO_PUBLIC_ENDPOINT` | `http://localhost:9000` | Host trong presigned URL (browser). Trong Docker, API vẫn kết nối `MINIO_ENDPOINT` để ký |
 | `MINIO_PRESIGN_TTL` | `1h` | TTL `video_url` |
